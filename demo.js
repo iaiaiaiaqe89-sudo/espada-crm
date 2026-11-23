@@ -202,7 +202,7 @@ const Demo = (() => {
     dismiss: (r) => {
       if (r.undo) {
         const done = db.tasks.filter((t) => t.key === r.key);
-        done.forEach((t) => { t.key = ''; t.title = '(отменено) ' + t.title; });
+        done.forEach((t) => { t.key = 'x|' + t.key; t.title = '(отменено) ' + t.title; });
         return { tasks: done };
       }
       return { tasks: [addTask({ title: r.title, key: r.key, done: true, doneAt: dtS(new Date()), due: dtS(new Date()), leadId: r.leadId || '' })] };
@@ -245,7 +245,7 @@ const Demo = (() => {
     undoPayment: (r) => {
       if (db.paid && db.paid[r.id]) { db.payments.push(db.paid[r.id]); delete db.paid[r.id]; }
       const done = db.tasks.filter((t) => t.key === r.key);
-      done.forEach((t) => { t.key = ''; t.title = '(отменено) ' + t.title; });
+      done.forEach((t) => { t.key = 'x|' + t.key; t.title = '(отменено) ' + t.title; });
       return { tasks: done };
     },
   });

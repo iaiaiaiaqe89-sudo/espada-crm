@@ -337,3 +337,19 @@ body.loading #progress::before { animation-play-state: running; }
 @keyframes ind-text-stage { from { color: var(--text); } }
 /* неактивные этапы слегка прозрачные — капсула видна, пока проезжает под ними */
 .stage-tab:not(.on) { background: color-mix(in srgb, var(--card) 72%, transparent); }
+
+/* =====================================================================
+   Исправления для Android
+   ===================================================================== */
+/* Ничего не должно выходить за ширину экрана: иначе Chrome на Android отдаляет страницу,
+   и нижняя панель с «+» уезжают за край. Переходы обрезаются по краю. */
+html, body { overflow-x: clip; }
+.app-body { overflow-x: clip; }
+/* Этапы «примагничиваются» к началу вкладки — с отступом, а не вплотную к краю экрана */
+.stage-tabs { scroll-padding-inline: 16px; }
+/* «+» не пересоздаётся: на «Ещё» плавно прячется */
+.fab { transition: transform .28s var(--spring), opacity .2s ease, box-shadow .2s ease; }
+.fab.fab-off { transform: scale(.3); opacity: 0; pointer-events: none; }
+/* Заголовок экрана мягко сменяется при переходе */
+.tb-text.title-in { animation: title-in .32s var(--ease-out); }
+@keyframes title-in { from { opacity: 0; transform: translateY(4px); } }

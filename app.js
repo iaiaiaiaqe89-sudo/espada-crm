@@ -254,7 +254,9 @@ const leadByPhone = (p) => {
   return n.length >= 11 ? S.d.leads.filter((l) => normPhone(l.phone) === n).sort((a, b) => (a.updated < b.updated ? 1 : -1))[0] : null;
 };
 const byDue = (a, b) => ((a.due || '9') < (b.due || '9') ? -1 : 1);
-const openTasks = () => S.d.tasks.filter((t) => !t.done && !t.key);
+/** Служебные записи — отменённые отметки «Напомнили» — в списках задач не показываем. */
+const isJunk = (t) => String(t.key || '').startsWith('x|') || /^\(отменено\) /.test(t.title || '');
+const openTasks = () => S.d.tasks.filter((t) => !t.done && !t.key && !isJunk(t));
 const myTask = (t) => t.owner === me() || (!t.owner && isMain());
 const leadTasks = (id) => openTasks().filter((t) => t.leadId === id).sort(byDue);
 const nextTask = (id) => leadTasks(id)[0];
@@ -308,6 +310,36 @@ function trialVars(x) {
 /* ============================== Каркас ============================== */
 
 const TAB_ORDER = ['today', 'board', 'tasks', 'more'];
+const TITLES = { today: 'Сегодня', board: 'Лиды', tasks: 'Задачи', more: 'Ещё' };
+const VIEWS = { today: () => viewToday(), board: () => viewBoard(), tasks: () => viewTasks(), more: () => viewMore() };
+
+/**
+ * Каркас — меню слева, шапка, нижняя панель и «+» — рисуется один раз и дальше только обновляется.
+ * Раньше он пересоздавался при каждой перерисовке, и на Android нижняя панель мигала и «дёргалась».
+ */
+function shell() {
+  return `
+    <aside class="sidebar">
+      <div class="brand"><span class="mark">${mark()}</span><span>Эспада CRM</span></div>
+      <button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>
+      <nav class="side-nav">${TAB_ORDER.map((v) => `
+        <button class="nav-item" data-act="tab" data-v="${v}">${ic(v)}<span>${TITLES[v]}</span><span class="badge hidden"></span></button>`).join('')}</nav>
+      <div class="side-foot">${ic('user', 2)}<span class="me-name"></span><span class="pill accent hidden me-main">главный</span></div>
+    </aside>
+    <div class="app-body">
+      ${CFG.demo ? '<div class="demo-bar">Демо-режим: данные ненастоящие и хранятся только на этом устройстве</div>' : ''}
+      <header class="topbar">
+        <div class="tb-logo">${LOGO}</div>
+        <div class="tb-text" style="flex:1;min-width:0"><h1 id="tbTitle"></h1><div class="sub" id="tbSub"></div></div>
+        <button class="icon-btn" id="busy" data-act="refresh" aria-label="Обновить" title="Обновить">${ic('refresh')}</button>
+      </header>
+      <main id="view"></main>
+    </div>
+    <button class="fab" data-act="newLead" aria-label="Новый лид">${ic('plus', 2.4)}</button>
+    <nav class="tabbar">${TAB_ORDER.map((v) => `
+      <button class="tab" data-act="tab" data-v="${v}">${ic(v)}<span>${TITLES[v]}</span><span class="badge hidden"></span></button>`).join('')}</nav>`;
+}
+
 /**
  * opts.anim: 'left' | 'right' — переход между вкладками, 'fade' — первый показ,
  * 'soft' — только мягкое появление списков (смена фильтра). Без anim — тихая перерисовка данных.
@@ -315,51 +347,44 @@ const TAB_ORDER = ['today', 'board', 'tasks', 'more'];
 function render(opts = {}) {
   if (!S.d) return;
   const anim = opts.anim && !reduced() ? opts.anim : '';
-  const st0 = $('.stage-tabs');
-  const stageScroll = st0 ? st0.scrollLeft : 0;
-  const app = $('#app');
-  const views = { today: viewToday, board: viewBoard, tasks: viewTasks, more: viewMore };
-  const view = views[S.view] ? S.view : 'today';
-  const titles = { today: 'Сегодня', board: 'Лиды', tasks: 'Задачи', more: 'Ещё' };
-  const t = todayS(), d = parseD(t);
+  if (!$('#app .tabbar') || !$('#view')) $('#app').innerHTML = shell();
+  const view = VIEWS[S.view] ? S.view : 'today';
+  const d = parseD(todayS());
   const overdue = openTasks().filter((x) => myTask(x) && x.due && x.due < nowS()).length;
-  const todayCount = overdue + S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me())).length;
+  const fresh = S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me())).length;
+  const badges = { today: overdue + fresh, tasks: overdue };
+
+  // каркас: только активный пункт, счётчики и подписи
+  $$('#app .nav-item, #app .tab').forEach((b) => {
+    const v = b.dataset.v;
+    b.classList.toggle('on', v === view);
+    const badge = $('.badge', b);
+    badge.textContent = badges[v] || '';
+    badge.classList.toggle('hidden', !badges[v]);
+  });
+  $('#tbTitle').textContent = TITLES[view];
+  $('#tbSub').textContent = view === 'today' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : me();
+  $('.me-name').textContent = me();
+  $('.me-main').classList.toggle('hidden', !isMain());
+  $('.fab').classList.toggle('fab-off', view === 'more');
+  $('.app-body').className = 'app-body view-' + view;
+  $('#busy').classList.toggle('spin', S.busy > 0);
+
+  // содержимое экрана
+  const main = $('#view');
+  const st0 = $('.stage-tabs', main);
+  const stageScroll = st0 ? st0.scrollLeft : 0;
   const scroll = window.scrollY;
-  const badges = { today: todayCount, tasks: overdue };
-  app.innerHTML = `
-    <aside class="sidebar">
-      <div class="brand"><span class="mark">${mark()}</span><span>Эспада CRM</span></div>
-      <button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>
-      <nav class="side-nav">${['today', 'board', 'tasks', 'more'].map((v) => `
-        <button class="nav-item ${view === v ? 'on' : ''}" data-act="tab" data-v="${v}">${ic(v)}<span>${titles[v]}</span>
-          ${badges[v] ? `<span class="badge">${badges[v]}</span>` : ''}</button>`).join('')}</nav>
-      <div class="side-foot">${ic('user', 2)}<span>${esc(me())}</span>${isMain() ? '<span class="pill accent">главный</span>' : ''}</div>
-    </aside>
-    <div class="app-body view-${view}">
-      ${CFG.demo ? '<div class="demo-bar">Демо-режим: данные ненастоящие и хранятся только на этом устройстве</div>' : ''}
-      <header class="topbar">
-        <div class="tb-logo">${LOGO}</div>
-        <div style="flex:1;min-width:0">
-          <h1>${titles[view]}</h1>
-          <div class="sub">${view === 'today' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : esc(me())}</div>
-        </div>
-        <button class="icon-btn ${S.busy ? 'spin' : ''}" id="busy" data-act="refresh" aria-label="Обновить" title="Обновить">${ic('refresh')}</button>
-      </header>
-      <main id="view" class="${['left', 'right', 'fade'].includes(anim) ? 'enter-' + anim : ''}">${views[view]()}</main>
-    </div>
-    ${view === 'more' ? '' : `<button class="fab" data-act="newLead" aria-label="Новый лид">${ic('plus', 2.4)}</button>`}
-    <nav class="tabbar">
-      ${tabBtn('today', 'Сегодня', todayCount)}${tabBtn('board', 'Лиды')}${tabBtn('tasks', 'Задачи', overdue)}${tabBtn('more', 'Ещё')}
-    </nav>`;
-  if (S.view === view) window.scrollTo(0, scroll);
-  const st1 = $('.stage-tabs');
+  const cls = ['left', 'right', 'fade'].includes(anim) ? 'enter-' + anim : '';
+  main.className = '';
+  if (cls) { void main.offsetWidth; main.className = cls; }
+  main.innerHTML = VIEWS[view]();
+  window.scrollTo(0, scroll);
+  const st1 = $('.stage-tabs', main);
   if (st1) st1.scrollLeft = stageScroll;
+  if (cls) flash($('.tb-text'), 'title-in');
   bindBoard();
   afterRender(anim);
-}
-function tabBtn(v, label, badge) {
-  const icon = { today: 'today', board: 'board', tasks: 'tasks', more: 'more' }[v];
-  return `<button class="tab ${S.view === v ? 'on' : ''}" data-act="tab" data-v="${v}">${ic(icon)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</button>`;
 }
 let busyTimer = 0;
 function updBusy() {
@@ -427,6 +452,7 @@ function placeIndicator(key, box, active, color) {
   const br = box.getBoundingClientRect(), ar = active.getBoundingClientRect();
   if (!ar.width || !br.width) return;
   let ind = box.querySelector(':scope > .ind');
+  const created = !ind;
   if (!ind) {
     ind = document.createElement('span');
     ind.className = 'ind';
@@ -445,7 +471,8 @@ function placeIndicator(key, box, active, color) {
     if (b.c) ind.style.backgroundColor = b.c;
   };
   const prev = IND[key];
-  if (prev && !reduced()) {
+  // Постоянный ползунок сам плавно едет из текущего места; заново нарисованный ставим на прошлое место и ведём оттуда
+  if (prev && created && !reduced()) {
     ind.style.transition = 'none';
     put(prev);
     void ind.getBoundingClientRect();
@@ -470,6 +497,20 @@ function stageIndicator(smooth) {
   if (l < box.scrollLeft + 12 || r > box.scrollLeft + box.clientWidth - 12) {
     box.scrollTo({ left: Math.max(0, l - (box.clientWidth - on.offsetWidth) / 2), behavior: smooth && !reduced() ? 'smooth' : 'auto' });
   }
+}
+
+/** Поставить ползунки на место без анимации (шрифт догрузился, сменился размер экрана). */
+function relayoutIndicators() {
+  if (!S.d) return;
+  Object.keys(IND).forEach((k) => delete IND[k]);
+  const inds = $$('.ind');
+  inds.forEach((i) => { i.style.transition = 'none'; });
+  placeIndicator('tabbar', $('.tabbar'), $('.tab.on'));
+  placeIndicator('side', $('.side-nav'), $('.nav-item.on'));
+  placeIndicator('tasks-seg', $('.seg-btns'), $('.seg-btns .chip.on'));
+  const box = $('.stage-tabs'), on = box && $('.stage-tab.on', box);
+  if (on) placeIndicator('stage', box, on, getComputedStyle(on).getPropertyValue('--c').trim());
+  requestAnimationFrame(() => requestAnimationFrame(() => $$('.ind').forEach((i) => { i.style.transition = ''; })));
 }
 
 /** После каждой перерисовки: ползунки, появление, подпрыгивание изменившихся чисел, непрерывные волны. */
@@ -878,7 +919,7 @@ function viewTasks() {
     ['Позже', list.filter((x) => x.due && x.due.slice(0, 10) > tm)],
     ['Без срока', list.filter((x) => !x.due)],
   ];
-  const done = S.d.tasks.filter((x) => x.done && !x.key && (S.allTasks || myTask(x)))
+  const done = S.d.tasks.filter((x) => x.done && !x.key && !isJunk(x) && (S.allTasks || myTask(x)))
     .sort((a, b) => (a.doneAt < b.doneAt ? 1 : -1)).slice(0, 15);
   return `<div class="toolbar">
       <div class="seg seg-btns" style="flex:1">
@@ -1679,7 +1720,7 @@ const ACT = {
   },
   undismiss(el) {
     const key = el.dataset.key;
-    run('dismiss', { key, undo: true }, () => { S.d.tasks.forEach((t) => { if (t.key === key) t.key = ''; }); }).catch(() => {});
+    run('dismiss', { key, undo: true }, () => { S.d.tasks.forEach((t) => { if (t.key === key) t.key = 'x|' + key; }); }).catch(() => {});
   },
   login() {
     const v = $('#loginLink').value.trim();
@@ -1757,6 +1798,12 @@ function boot() {
   if (!S.d) renderSkeleton();
   load();
   initGestures();
+  if (document.fonts) {
+    document.fonts.ready.then(relayoutIndicators);
+    if (document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', relayoutIndicators);
+  }
+  let rz = 0;
+  addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(relayoutIndicators, 150); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && Date.now() - S.loadedAt > 60000) load(true);
   });
