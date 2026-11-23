@@ -239,6 +239,12 @@ function trialsToday() {
     .sort((a, b) => (a.time < b.time ? -1 : 1))
     .map((x) => ({ ...x, reminded: !!m[trialKey(x)] }));
 }
+function trialsTomorrow() {
+  const tm = addDays(todayS(), 1), m = dismissed();
+  return S.d.trials.filter((x) => x.date === tm && x.result !== 'Перенос' && x.result !== 'Отказ')
+    .sort((a, b) => (a.time < b.time ? -1 : 1))
+    .map((x) => ({ ...x, reminded: !!m['eve|' + trialKey(x)] }));
+}
 function trialsNoResult() {
   const t = todayS(), from = addDays(t, -14);
   return S.d.trials.filter((x) => x.date < t && x.date >= from && !x.result)
@@ -321,6 +327,7 @@ function viewToday() {
   const fresh = S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me()))
     .sort((a, b) => (a.created < b.created ? -1 : 1));
   const trials = trialsToday();
+  const tomorrow = trialsTomorrow();
   const noRes = trialsNoResult();
   const pays = paymentsDue();
   const tLeft = trials.filter((x) => !x.reminded);
@@ -343,6 +350,11 @@ function viewToday() {
       : `<div class="list"><div class="empty">${overdue.length ? 'Остальное на сегодня сделано' : 'На сегодня задач нет 🎉'}</div></div>`);
   right += sec('Пробные сегодня', trials.length ? `${trials.length - tLeft.length}/${trials.length} напомнили` : null,
     trials.length ? `<div class="list">${trials.map(trialRow).join('')}</div>` : '<div class="list"><div class="empty">Сегодня пробных нет</div></div>');
+  if (tomorrow.length) {
+    const left2 = tomorrow.filter((x) => !x.reminded).length;
+    right += sec('Пробные завтра — напомнить накануне', `${tomorrow.length - left2}/${tomorrow.length} напомнили`,
+      `<div class="list">${tomorrow.map((x) => trialRow(x, 'eve|')).join('')}</div>`);
+  }
   if (noRes.length) right += sec('Заполните итог пробного', noRes.length, `<div class="list">${noRes.map(noResRow).join('')}</div>`);
   if (isMain() || pays.length) {
     right += sec('Напомнить об оплате', pays.length || null,
@@ -376,12 +388,14 @@ function taskRow(t) {
     <div class="main">
       <div class="title tap" data-act="task" data-id="${esc(t.id)}">${esc(t.title)}</div>
       <div class="meta">${meta.join(' · ')}</div>
-      ${lead && lead.phone && !t.done ? `<div class="actions">${waBtn(lead.phone)}${telBtn(lead.phone)}</div>` : ''}
+      ${!t.done && /Базу учеников/.test(t.title) && !(lead && lead.inBase)
+        ? `<div class="actions"><button class="btn primary" data-act="enroll" data-lead="${esc(t.leadId)}">Добавить в Базу</button></div>`
+        : lead && lead.phone && !t.done ? `<div class="actions">${waBtn(lead.phone)}${telBtn(lead.phone)}</div>` : ''}
     </div></div>`;
 }
-function trialRow(x) {
+function trialRow(x, prefix = '') {
   const lead = leadByPhone(x.phone);
-  const key = trialKey(x);
+  const key = prefix + trialKey(x);
   return `<div class="row ${x.reminded ? 'done' : ''}">
     <div class="time-col">${esc(x.time)}</div>
     <div class="main">
@@ -392,7 +406,7 @@ function trialRow(x) {
         ${x.reminded
           ? `<span class="pill green">${ic('check', 3)} напомнили</span><button class="btn ghost" data-act="undismiss" data-key="${esc(key)}">Отменить</button>`
           : `${waBtn(x.phone, tpl('напоминание о пробном', trialVars(x)), 'Напомнить')}${telBtn(x.phone)}
-             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc('Напомнили о пробном: ' + (x.name || prettyPhone(x.phone)))}" data-lead="${esc(lead ? lead.id : '')}">${ic('check', 2.6)}Напомнили</button>`}
+             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc((prefix ? 'Напомнили накануне о пробном: ' : 'Напомнили о пробном: ') + (x.name || prettyPhone(x.phone)))}" data-lead="${esc(lead ? lead.id : '')}">${ic('check', 2.6)}Напомнили</button>`}
       </div>
     </div></div>`;
 }
@@ -418,7 +432,10 @@ function payRow(p) {
       <div class="meta">${[p.teacher, p.nextDate ? 'оплата ' + ruDate(p.nextDate) : '', prettyPhone(p.phone)].filter(Boolean).map(esc).join(' · ')}</div>
       <div class="actions">
         ${p.phone ? waBtn(p.phone, text, 'Напомнить') + telBtn(p.phone) : '<span class="pill">нет телефона в базе</span>'}
+      </div>
+      <div class="actions">
         <button class="btn ok" data-act="dismiss" data-key="${esc(p.key)}" data-title="${esc('Напомнили об оплате: ' + p.name + ' (' + p.teacher + ')')}">${ic('check', 2.6)}Напомнили</button>
+        <button class="btn primary" data-act="pay" data-key="${esc(p.key)}">Оплатил</button>
       </div>
     </div></div>`;
 }
@@ -722,6 +739,9 @@ function leadSheet(id) {
       <button data-act="addTask" data-lead="${esc(l.id)}">${ic('task', 1.8)}Задача</button>
       <button data-act="book" data-id="${esc(l.id)}">${ic('trial', 1.8)}Пробный</button>
     </div>
+    ${l.stage === 'Записался' && !l.inBase ? `<section class="section"><div class="list"><div class="row"><div class="main">
+      <div class="title">Ученик записался 🎉</div><div class="meta">Добавьте его в «Базу учеников» — он появится и в расписании преподавателя.</div>
+      <div class="actions"><button class="btn primary" data-act="enroll" data-lead="${esc(l.id)}">Добавить в Базу</button></div></div></div></div></section>` : ''}
     ${trial}
     <section class="section"><div class="section-h"><h2>Задачи</h2><button class="link" data-act="addTask" data-lead="${esc(l.id)}">+ Добавить</button></div>
       <div class="list">${tasks.length ? tasks.map(taskRow).join('') : `<div class="empty">${ACTIVE.includes(l.stage) ? 'Нет следующего шага — добавьте задачу' : 'Задач нет'}</div>`}</div></section>
@@ -730,6 +750,7 @@ function leadSheet(id) {
         <div class="k">Телефон</div><div>${l.phone ? `<a href="${esc(telUrl(l.phone))}">${esc(prettyPhone(l.phone))}</a>` : '—'}</div>
         <div class="k">Кто пишет</div><div>${esc(l.contact || '—')}</div>
         <div class="k">Ответственный</div><div>${esc(l.owner || '—')}</div>
+        ${l.inBase ? `<div class="k">В Базе</div><div>${esc(l.inBase)}</div>` : ''}
         <div class="k">Создан</div><div>${esc(l.created ? dayLabel(l.created.slice(0, 10)) + ', ' + l.created.slice(11) : '—')}</div>
         ${l.lostReason ? `<div class="k">Причина отказа</div><div>${esc(l.lostReason)}</div>` : ''}
         ${l.comment ? `<div class="k">Комментарий</div><div style="white-space:pre-wrap">${esc(l.comment)}</div>` : ''}
@@ -754,7 +775,8 @@ function openLeadForm(id) {
   const l = id ? leadById(id) : null;
   openSheet(() => sheetHead(l ? 'Изменить лид' : 'Новый лид') + `
     <form id="leadForm" autocomplete="off">
-      <div class="field"><label for="f-phone">Телефон / WhatsApp</label>
+      <div class="field"><div class="lbl-row"><label for="f-phone">Телефон / WhatsApp</label>
+        <button type="button" class="link-btn" id="pastePhone">${ic('task', 2)}Вставить из буфера</button></div>
         <input class="input" id="f-phone" name="phone" type="tel" inputmode="tel" placeholder="0555 123 456" value="${esc(l ? prettyPhone(l.phone) : '')}">
         <div id="dup"></div></div>
       <div class="field"><label for="f-name">Имя ребёнка</label>
@@ -793,6 +815,18 @@ function openLeadForm(id) {
         }, 450);
       };
       phone.addEventListener('input', check);
+      $('#pastePhone', sh.panel).onclick = async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          const m = String(text || '').match(/\+?\d[\d\s()\-]{7,}\d/);
+          if (!m) return toast('В буфере обмена нет номера телефона', { err: true });
+          phone.value = prettyPhone(m[0]);
+          check();
+          $('#f-name', sh.panel).focus();
+        } catch {
+          toast('Не удалось прочитать буфер. Нажмите в поле и выберите «Вставить»', { err: true });
+        }
+      };
       if (l) check();
       $$('[data-fill]', sh.panel).forEach((b) => { b.onclick = () => { f.elements[b.dataset.fill].value = b.dataset.v + ' '; f.elements[b.dataset.fill].focus(); }; });
       if (!l) setTimeout(() => phone.focus(), 300);
@@ -839,7 +873,7 @@ function openBooking(id) {
     <div class="field"><span class="lbl">Преподаватель</span><div class="chips">${radios('teacher', S.d.teachers, st.teacher)}</div></div>
     <div class="field"><span class="lbl">День</span><div class="chips nowrap">${radios('date', days.map((d) => [d, dayLabel(d)]), st.date)}
       <label class="chip"><input type="date" id="f-date" min="${t}" style="position:absolute;inset:0;opacity:0;width:100%"><span>Другой…</span></label></div></div>
-    <div class="field"><span class="lbl">Время <span id="slotNote" style="font-weight:500"></span></span><div id="slots"></div></div>
+    <div class="field"><span class="lbl">Время${l.grade ? ` <span style="font-weight:500">· ★ — в группе уже есть ${esc(l.grade)} класс</span>` : ''}</span><div id="slots"></div></div>
     <div class="field"><span class="lbl">Формат</span><div class="seg">${radios('format', ['Офлайн', 'Онлайн'], st.format)}</div></div>
     <div class="field"><label for="f-tc">Комментарий для таблицы</label><input class="input" id="f-tc" placeholder="Необязательно"></div>
     <div class="sheet-foot"><button class="btn primary lg" id="bookBtn" disabled>Выберите время</button></div>`, {
@@ -865,9 +899,12 @@ function openBooking(id) {
         const r = S.slots[k].r;
         if (r.dayOff || !r.slots.some((s) => s.status !== 'off')) { box.innerHTML = '<div class="warnbox">В этот день преподаватель не работает</div>'; return; }
         const label = { free: 'свободно', group: 'группа', busy: 'занято', off: 'не работает' };
+        const g = String(l.grade || '').trim();
+        const hasGrade = (s) => !!g && [...String(s.who || '').matchAll(/(\d+) кл/g)].some((m) => m[1] === g);
         box.innerHTML = `<div class="slots">${r.slots.filter((s) => s.status !== 'off' || (s.time >= '14:00')).map((s) => `
-          <button type="button" class="slot ${s.status}" data-time="${s.time}" ${s.status === 'off' ? 'disabled' : ''}>
+          <button type="button" class="slot ${s.status} ${s.status === 'group' && hasGrade(s) ? 'match' : ''}" data-time="${s.time}" ${s.status === 'off' ? 'disabled' : ''}>
             <b>${s.time}</b><small>${s.status === 'group' || s.status === 'busy' ? esc(s.type || label[s.status]) + (s.who ? ': ' + esc(s.who.replace(/^(\d+) чел\.:.*/, '$1 чел.')) : '') : label[s.status]}</small>
+            ${s.status === 'group' && hasGrade(s) ? `<small class="mt">★ есть ${esc(g)} кл</small>` : ''}
             ${s.trials.length ? `<small class="tr">пробный: ${esc(s.trials.join(', '))}</small>` : ''}
           </button>`).join('')}</div>`;
         $$('.slot', box).forEach((b) => { b.onclick = () => { $$('.slot.sel', box).forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); st.time = b.dataset.time; upd(); }; });
@@ -900,6 +937,162 @@ function openBooking(id) {
       drawSlots();
     },
   });
+}
+
+/* ---------- Добавить ученика в Базу ---------- */
+
+const HOURS = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'];
+
+function openEnroll(src) {
+  const l = src.leadId ? leadById(src.leadId) : null;
+  const tr = src.trial || (l && l.trialDate ? trialOfLead(l) : null);
+  const init = {
+    teacher: (l && l.teacher) || (tr && tr.teacher) || '',
+    name: (l && l.name) || (tr && tr.name) || '',
+    phone: (l && l.phone) || (tr && tr.phone) || '',
+    grade: (l && l.grade) || (tr && tr.grade) || '',
+    onl: (l && l.format) || (tr && tr.format) || 'Офлайн',
+    time: (l && l.trialTime) || (tr && tr.time) || '',
+  };
+  const sh = openSheet((sh) => {
+    const m = sh.data.meta;
+    if (!m) return sheetHead('Добавить в Базу') + `<div class="list"><div class="empty">${esc(sh.data.err || 'Загружаю справочники из Базы…')}</div></div>`;
+    const teachers = m.teachers.length ? m.teachers : S.d.teachers;
+    return sheetHead('Добавить в Базу') + `
+    <form id="enrollForm" autocomplete="off">
+      <div class="field"><span class="lbl">Преподаватель</span><div class="chips">${radios('teacher', teachers, teachers.includes(init.teacher) ? init.teacher : '')}</div></div>
+      <div class="field"><label for="e-name">Имя</label><input class="input" id="e-name" name="name" value="${esc(init.name)}"></div>
+      <div class="field"><label for="e-phone">Телефон</label><input class="input" id="e-phone" name="phone" type="tel" value="${esc(prettyPhone(init.phone))}"></div>
+      <div class="field"><label for="e-grade">Класс</label><input class="input" id="e-grade" name="grade" inputmode="numeric" value="${esc(init.grade)}" placeholder="Например, 9 или 1 курс"></div>
+      <div class="field"><span class="lbl">Формат</span><div class="seg">${radios('format', m.formats, 'Группа')}</div></div>
+      <div class="field"><span class="lbl">Онл / Офф</span><div class="seg">${radios('onl', ['Офлайн', 'Онлайн'], init.onl)}</div></div>
+      <div class="field"><span class="lbl">Дни занятий</span><div class="chips">${radios('days', m.days, '')}</div></div>
+      <div class="field"><span class="lbl">Время</span><div class="chips nowrap">${radios('time', HOURS, HOURS.includes(init.time) ? init.time : '')}</div></div>
+      <div class="field"><label for="e-price">Цена абонемента, сом</label><input class="input" id="e-price" name="price" type="number" inputmode="numeric" value="${esc(m.prices['Группа'] || '')}"></div>
+      <div class="field"><span class="lbl">Оплатил сейчас?</span><div class="seg">${radios('paidNow', [['1', 'Да'], ['0', 'Пока нет']], '1')}</div></div>
+      <div id="paidBox">
+        <div class="field"><label for="e-paid">Сумма оплаты, сом</label><input class="input" id="e-paid" name="paid" type="number" inputmode="numeric" value="${esc(m.prices['Группа'] || '')}"></div>
+        <div class="field"><label for="e-date">Дата оплаты</label><input class="input" id="e-date" name="payDate" type="date" value="${todayS()}"></div>
+      </div>
+      <div class="field"><label for="e-comment">Комментарий</label><input class="input" id="e-comment" name="comment" placeholder="Необязательно"></div>
+      <p class="hint">Строка появится на листе преподавателя в «Базе учеников», а ученик — в его расписании в течение минуты. Если это новый час у преподавателя, поставьте «Тип» в расписании.</p>
+      <div class="sheet-foot"><button class="btn primary lg" type="submit">Добавить в Базу</button></div>
+    </form>`;
+  }, {
+    data: { meta: S.baseMeta || null },
+    after: (sh) => {
+      const f = $('#enrollForm', sh.panel);
+      if (!f) return;
+      const price = f.elements.price, paid = f.elements.paid;
+      let priceTouched = false, paidTouched = false;
+      price.addEventListener('input', () => { priceTouched = true; if (!paidTouched) paid.value = price.value; });
+      paid.addEventListener('input', () => { paidTouched = true; });
+      f.addEventListener('change', (e) => {
+        if (e.target.name === 'format' && !priceTouched) {
+          price.value = sh.data.meta.prices[e.target.value] || '';
+          if (!paidTouched) paid.value = price.value;
+        }
+        if (e.target.name === 'paidNow') $('#paidBox', sh.panel).classList.toggle('hidden', e.target.value === '0');
+      });
+      const send = async (force) => {
+        const v = Object.fromEntries(new FormData(f).entries());
+        if (!v.teacher) return toast('Выберите преподавателя', { err: true });
+        if (!v.name.trim()) return toast('Укажите имя', { err: true });
+        if (!v.days || !v.time) return toast('Выберите дни и время — без них ученик не попадёт в расписание', { err: true });
+        const student = {
+          teacher: v.teacher, name: v.name.trim(), phone: v.phone, grade: v.grade.trim(), format: v.format, onl: v.onl,
+          days: v.days, time: v.time, price: v.price, comment: v.comment.trim(),
+          paid: v.paidNow === '1' ? v.paid : '', payDate: v.paidNow === '1' ? v.payDate : '',
+        };
+        const b = $('button[type=submit]', f);
+        b.disabled = true; b.textContent = 'Записываю в Базу…';
+        try {
+          const r = await run('enroll', { leadId: l ? l.id : '', student, force: !!force });
+          if (r.duplicate) {
+            b.disabled = false; b.textContent = 'Добавить в Базу';
+            if (confirm(`У преподавателя ${r.duplicate.teacher} уже есть «${r.duplicate.name}» (строка ${r.duplicate.row}). Это другой ученик? Добавить всё равно?`)) send(true);
+            return;
+          }
+          sh.close();
+          toast(`Добавлен в Базу: ${r.enrolled.teacher}, строка ${r.enrolled.row}`);
+        } catch { b.disabled = false; b.textContent = 'Добавить в Базу'; }
+      };
+      f.onsubmit = (e) => { e.preventDefault(); send(false); };
+    },
+  });
+  if (!S.baseMeta) {
+    call('baseMeta').then((m) => { S.baseMeta = m; sh.data.meta = m; sh.render(); })
+      .catch((e) => { sh.data.err = e.message; sh.render(); });
+  }
+}
+
+/* ---------- Оплатил ---------- */
+
+const money = (n) => (Number(n) || 0).toLocaleString('ru-RU').replace(/ /g, ' ');
+
+function openPayment(p) {
+  const sh = openSheet((sh) => {
+    const i = sh.data.info;
+    const head = sheetHead('Оплата') + `<p class="hint" style="margin-top:0">${esc(p.name)} · ${esc(p.teacher)}</p>`;
+    if (sh.data.err) return head + `<div class="warnbox errbox">${esc(sh.data.err)}</div>`;
+    if (!i) return head + '<div class="list"><div class="empty">Ищу ученика в «Базе учеников»…</div></div>';
+    const mode = i.debt > 0 && p.status === 'Долг' ? 'add' : 'renew';
+    return head + `
+      <div class="list kv">
+        <div class="k">Абонемент</div><div>${esc([i.format, i.days, i.time].filter(Boolean).join(' · ') || '—')}</div>
+        <div class="k">Цена</div><div>${money(i.price)} сом</div>
+        <div class="k">Оплачено</div><div>${money(i.paid)} сом${i.debt > 0 ? ` · <span style="color:var(--red)">долг ${money(i.debt)}</span>` : ''}</div>
+        <div class="k">Дата оплаты</div><div>${esc(i.payDate ? i.payDate.split('-').reverse().join('.') : '—')}</div>
+        <div class="k">След. оплата</div><div>${esc(i.next || '—')}${i.payStatus ? ` · ${esc(i.payStatus)}` : ''}</div>
+      </div>
+      <div class="field"><span class="lbl">Что оплатили</span><div class="seg">${radios('mode', [['renew', 'Новый абонемент'], ['add', 'Доплата долга']], mode)}</div></div>
+      <div class="field"><label for="p-amount">Сумма, сом</label>
+        <input class="input" id="p-amount" type="number" inputmode="numeric" value="${mode === 'add' ? i.debt : i.price}"></div>
+      <div class="field" id="p-dateBox"><label for="p-date">Дата оплаты</label><input class="input" id="p-date" type="date" value="${todayS()}"></div>
+      <p class="hint" id="p-hint"></p>
+      <div class="sheet-foot"><button class="btn primary lg" id="payBtn">Записать оплату в Базу</button></div>`;
+  }, {
+    data: { info: null, err: '' },
+    after: (sh) => {
+      const i = sh.data.info;
+      if (!i) return;
+      const pnl = sh.panel;
+      const amount = $('#p-amount', pnl);
+      const hint = () => {
+        const m = $('input[name=mode]:checked', pnl).value;
+        const a = Number(amount.value) || 0;
+        $('#p-dateBox', pnl).classList.toggle('hidden', m === 'add' && !!i.payDate);
+        $('#p-hint', pnl).textContent = m === 'renew'
+          ? `В Базе: Дата оплаты → ${$('#p-date', pnl).value.split('-').reverse().join('.')}, Оплачено → ${money(a)}, заморозки обнулятся. Дата следующей оплаты пересчитается сама.`
+          : `В Базе: Оплачено ${money(i.paid)} → ${money(i.paid + a)}.${i.payDate ? ' Дата оплаты не меняется.' : ''}`;
+      };
+      pnl.addEventListener('change', (e) => {
+        if (e.target.name === 'mode') amount.value = e.target.value === 'add' ? i.debt : i.price;
+        hint();
+      });
+      amount.addEventListener('input', hint);
+      hint();
+      $('#payBtn', pnl).onclick = async () => {
+        const b = $('#payBtn', pnl);
+        const mode = $('input[name=mode]:checked', pnl).value;
+        b.disabled = true; b.textContent = 'Записываю…';
+        try {
+          const r = await run('recordPayment', { teacher: p.teacher, name: p.name, phone: p.phone, status: p.status, nextDate: p.nextDate,
+            row: i.row, mode, amount: amount.value, date: $('#p-date', pnl).value, key: p.key });
+          sh.close();
+          toast(`Оплата ${money(amount.value)} сом записана в Базу`, {
+            action: 'Отменить',
+            onAction: () => run('undoPayment', { id: r.payment.id, key: p.key })
+              .then(() => { toast('Оплата отменена'); setTimeout(() => load(true), 3000); }).catch(() => {}),
+          });
+          setTimeout(() => load(true), 4000);
+        } catch { b.disabled = false; b.textContent = 'Записать оплату в Базу'; }
+      };
+    },
+  });
+  call('studentInfo', { teacher: p.teacher, name: p.name, phone: p.phone, status: p.status, nextDate: p.nextDate })
+    .then((info) => { sh.data.info = info; sh.render(); })
+    .catch((e) => { sh.data.err = e.message; sh.render(); });
 }
 
 /* ---------- Отказ ---------- */
@@ -991,6 +1184,8 @@ const ACT = {
   taskDone(el) { const t = S.d.tasks.find((x) => x.id === el.dataset.id); if (t) setDone(t.id, !t.done); },
   toStage(el) { changeStage(leadById(el.dataset.id), el.dataset.v); },
   book(el) { openBooking(el.dataset.id); },
+  enroll(el) { openEnroll({ leadId: el.dataset.lead }); },
+  pay(el) { const p = S.d.payments.find((x) => x.key === el.dataset.key); if (p) openPayment(p); },
   call(el) { const u = telUrl(el.dataset.phone); if (u) location.href = u; else toast('Нет телефона', { err: true }); },
   open(el) { if (el.dataset.url) window.open(el.dataset.url, '_blank'); },
   leadStage(el) {
@@ -1023,7 +1218,7 @@ const ACT = {
     run('setTrialResult', { row, result: v, phone: el.dataset.phone, leadId: el.dataset.lead }, () => { if (tr) tr.result = v; })
       .then((r) => {
         const nl = r.leads && r.leads[0];
-        if (v === 'Записался') toast('Отлично! Не забудьте добавить ученика в Базу и расписание');
+        if (v === 'Записался') openEnroll({ leadId: nl ? nl.id : '', trial: tr });
         else if (nl) toast(`Итог сохранён · ${nl.stage}`);
         else toast('Итог записан в «Пробные»');
       }).catch(() => {});

@@ -388,3 +388,11 @@ textarea.input { height: auto; min-height: 76px; padding: 10px 12px; resize: ver
   main { padding-left: 24px; padding-right: 24px; }
   .today-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
 }
+
+/* ---------- v4: буфер обмена, класс в слотах ---------- */
+.lbl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 4px 6px; }
+.lbl-row label { font-size: 13px; font-weight: 650; color: var(--muted); }
+.link-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 650; color: var(--accent); }
+.link-btn svg { width: 15px; height: 15px; }
+.slot.match { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 70%, var(--card)); }
+.slot .mt { color: var(--accent); font-weight: 700; }

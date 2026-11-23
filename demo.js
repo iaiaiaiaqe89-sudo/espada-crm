@@ -169,7 +169,7 @@ const Demo = (() => {
         if (h >= 15 && h < 20) {
           const k = (seedN + h) % 5;
           if (k === 0) status = 'free';
-          else if (k === 1 || k === 3) { status = 'group'; type = 'Гр. есть места'; who = `${2 + (k % 3)} чел.: …`; }
+          else if (k === 1 || k === 3) { status = 'group'; type = 'Гр. есть места'; who = k === 1 ? '3 чел.: Айдана 8 кл, Эмир 8 кл, Атай 9 кл' : '2 чел.: Сауле 6 кл, Нурай 5 кл'; }
           else if (k === 2) { status = 'busy'; type = 'Гр. полная'; who = '7 чел.: …'; }
           else { status = 'busy'; type = 'Инд'; who = '1 чел.: …'; }
         }
@@ -208,6 +208,47 @@ const Demo = (() => {
       return { tasks: [addTask({ title: r.title, key: r.key, done: true, doneAt: dtS(new Date()), due: dtS(new Date()), leadId: r.leadId || '' })] };
     },
   };
+
+  Object.assign(A, {
+    baseMeta: () => ({ days: ['Пн-Ср-Пт', 'Вт-Чт-Сб', 'Пн-Ср', 'Вт-Чт', 'Сб', 'Вт + Сб×2'], prices: { 'Группа': 6000, 'Пара': 8000, 'Инд': 12000 },
+      teachers: TEACHERS, formats: ['Группа', 'Пара', 'Инд'] }),
+    enroll: (r) => {
+      const st = r.student;
+      if (!r.force && st.name === 'Алихан') return { duplicate: { row: 4, name: 'Алихан', teacher: st.teacher } };
+      db.baseRow = (db.baseRow || 11) + 1;
+      const out = { leads: [], tasks: [], enrolled: { teacher: st.teacher, row: db.baseRow } };
+      const l = r.leadId && db.leads.find((x) => x.id === r.leadId);
+      if (l) {
+        l.inBase = `${st.teacher}, строка ${db.baseRow}`;
+        l.stage = 'Записался';
+        log(l, `добавлен(а) в Базу: ${st.teacher}, ${st.format} ${st.days} ${st.time}`);
+        db.tasks.forEach((t) => { if (t.leadId === l.id && !t.done && /Базу учеников/.test(t.title)) { t.done = true; t.doneAt = dtS(new Date()); } });
+        out.leads.push(l); out.tasks = touchTasks(l.id);
+      }
+      return out;
+    },
+    studentInfo: (r) => {
+      const p = db.payments.find((x) => x.name === r.name && x.teacher === r.teacher);
+      if (!p) throw new Error('Ученик не найден в Базе');
+      const debt = Number(String(p.debt).replace(/\D/g, '')) || 0;
+      const price = debt || 6000;
+      return { row: 7, name: p.name, phone: p.phone, format: 'Группа', days: 'Пн-Ср-Пт', time: '17:00', price,
+        paid: debt ? 0 : price, debt, payDate: debt ? '' : day(-26), freezes: '', next: p.nextDate, payStatus: p.status };
+    },
+    recordPayment: (r) => {
+      const i = db.payments.findIndex((x) => x.name === r.name && x.teacher === r.teacher);
+      const pid = id();
+      db.paid = db.paid || {};
+      if (i >= 0) { db.paid[pid] = db.payments[i]; db.payments.splice(i, 1); }
+      return { payment: { id: pid }, tasks: [addTask({ title: `Оплата ${r.amount} сом: ${r.name}`, key: r.key, done: true, doneAt: dtS(new Date()), due: dtS(new Date()) })] };
+    },
+    undoPayment: (r) => {
+      if (db.paid && db.paid[r.id]) { db.payments.push(db.paid[r.id]); delete db.paid[r.id]; }
+      const done = db.tasks.filter((t) => t.key === r.key);
+      done.forEach((t) => { t.key = ''; t.title = '(отменено) ' + t.title; });
+      return { tasks: done };
+    },
+  });
 
   return {
     call(action, payload) {
