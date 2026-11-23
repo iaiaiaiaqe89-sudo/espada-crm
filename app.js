@@ -74,6 +74,19 @@ const waUrl = (p, text) => {
 const telUrl = (p) => { const d = normPhone(p); return d.length >= 11 ? 'tel:+' + d : ''; };
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* приватный режим */ } };
+const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const isWide = () => matchMedia('(min-width: 1000px)').matches;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const buzz = (ms = 8) => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch { /* без вибрации */ } };
+/** Склонение: plural(5, ['задача', 'задачи', 'задач']) → «задач». */
+function plural(n, forms) {
+  const a = Math.abs(Number(n)) % 100, b = a % 10;
+  if (a > 10 && a < 20) return forms[2];
+  if (b === 1) return forms[0];
+  if (b > 1 && b < 5) return forms[1];
+  return forms[2];
+}
+const NONAME = '<span class="noname">без имени</span>';
 
 /* ============================== Иконки ============================== */
 
@@ -96,6 +109,8 @@ const ICONS = {
   send: '<path d="M21 3.5L3 10.8l6.8 2.5L12.3 20z"/><path d="M9.8 13.3L21 3.5"/>',
   table: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/>',
   user: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/>',
+  chev: '<path d="M7 10l5 5 5-5"/>',
+  alert: '<path d="M12 8.5v4.5"/><path d="M12 16.6v.1"/><path d="M10.3 3.9L2.6 17.5a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
 };
 /** Знак «Эспада»: шлем из синусоиды и оси Y (по брендбуку). Цвета задаются темой. */
 const LOGO = `<svg viewBox="0 0 100 128" aria-hidden="true">
@@ -173,6 +188,8 @@ const S = {
   busy: 0,
   loadedAt: 0,
   slots: {},
+  nums: {},
+  expanded: {},
 };
 const cacheKey = () => 'espada-cache-' + (CFG.demo ? 'demo' : (CFG.key || '').slice(0, 6));
 
@@ -195,10 +212,11 @@ async function load(silent) {
   S.busy++; updBusy();
   try {
     const d = await call('bootstrap');
+    const first = !S.d;
     S.d = d;
     S.loadedAt = Date.now();
     lsSet(cacheKey(), JSON.stringify(d));
-    render();
+    render(first ? { anim: 'fade' } : {});
     rerenderSheets();
   } catch (e) {
     if (!S.d) renderFatal(e.message);
@@ -289,8 +307,16 @@ function trialVars(x) {
 
 /* ============================== Каркас ============================== */
 
-function render() {
+const TAB_ORDER = ['today', 'board', 'tasks', 'more'];
+/**
+ * opts.anim: 'left' | 'right' — переход между вкладками, 'fade' — первый показ,
+ * 'soft' — только мягкое появление списков (смена фильтра). Без anim — тихая перерисовка данных.
+ */
+function render(opts = {}) {
   if (!S.d) return;
+  const anim = opts.anim && !reduced() ? opts.anim : '';
+  const st0 = $('.stage-tabs');
+  const stageScroll = st0 ? st0.scrollLeft : 0;
   const app = $('#app');
   const views = { today: viewToday, board: viewBoard, tasks: viewTasks, more: viewMore };
   const view = views[S.view] ? S.view : 'today';
@@ -319,22 +345,30 @@ function render() {
         </div>
         <button class="icon-btn ${S.busy ? 'spin' : ''}" id="busy" data-act="refresh" aria-label="Обновить" title="Обновить">${ic('refresh')}</button>
       </header>
-      <main id="view">${views[view]()}</main>
+      <main id="view" class="${['left', 'right', 'fade'].includes(anim) ? 'enter-' + anim : ''}">${views[view]()}</main>
     </div>
     ${view === 'more' ? '' : `<button class="fab" data-act="newLead" aria-label="Новый лид">${ic('plus', 2.4)}</button>`}
     <nav class="tabbar">
       ${tabBtn('today', 'Сегодня', todayCount)}${tabBtn('board', 'Лиды')}${tabBtn('tasks', 'Задачи', overdue)}${tabBtn('more', 'Ещё')}
     </nav>`;
   if (S.view === view) window.scrollTo(0, scroll);
+  const st1 = $('.stage-tabs');
+  if (st1) st1.scrollLeft = stageScroll;
   bindBoard();
+  afterRender(anim);
 }
 function tabBtn(v, label, badge) {
   const icon = { today: 'today', board: 'board', tasks: 'tasks', more: 'more' }[v];
   return `<button class="tab ${S.view === v ? 'on' : ''}" data-act="tab" data-v="${v}">${ic(icon)}<span>${label}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</button>`;
 }
+let busyTimer = 0;
 function updBusy() {
   const b = $('#busy');
   if (b) b.classList.toggle('spin', S.busy > 0);
+  clearTimeout(busyTimer);
+  // тонкая полоса сверху — только если ждать дольше четверти секунды
+  if (S.busy > 0) busyTimer = setTimeout(() => document.body.classList.add('loading'), 250);
+  else document.body.classList.remove('loading');
 }
 function renderFatal(msg) {
   $('#app').innerHTML = `<div class="login"><div class="logo">${mark()}</div><h1>Не удалось загрузить</h1><p>${esc(msg)}</p>
@@ -352,6 +386,221 @@ function renderLogin() {
   </div>`;
 }
 
+/* ============================== Движение ============================== */
+
+/** Разовая анимация: класс снимается, когда она закончится. */
+function flash(el, cls = 'bump') {
+  if (!el || reduced()) return;
+  el.classList.remove(cls);
+  void el.getBoundingClientRect();
+  el.classList.add(cls);
+  const done = (e) => { if (e.target !== el) return; el.classList.remove(cls); el.removeEventListener('animationend', done); };
+  el.addEventListener('animationend', done);
+}
+
+/** Появление «лесенкой»: каждый следующий элемент чуть позже. */
+function staggerIn(root, sel, max = 14) {
+  if (!root || reduced()) return;
+  $$(sel, root).slice(0, max).forEach((el, i) => {
+    el.style.setProperty('--i', i);
+    el.classList.add('rise');
+    const done = (e) => { if (e.target !== el) return; el.classList.remove('rise'); el.removeEventListener('animationend', done); };
+    el.addEventListener('animationend', done);
+  });
+}
+
+/** Строка плавно схлопывается, прежде чем исчезнуть из списка. */
+function collapseOut(el, ms = 300) {
+  if (!el || reduced()) return Promise.resolve();
+  el.style.height = el.getBoundingClientRect().height + 'px';
+  el.style.overflow = 'hidden';
+  void el.getBoundingClientRect();
+  el.classList.add('leaving');
+  el.style.height = '0px';
+  return wait(ms);
+}
+
+/** Ползунок под активным пунктом. Переезжает с прошлого места, даже если меню нарисовано заново. */
+const IND = {};
+function placeIndicator(key, box, active, color) {
+  if (!box || !active) return;
+  const br = box.getBoundingClientRect(), ar = active.getBoundingClientRect();
+  if (!ar.width || !br.width) return;
+  let ind = box.querySelector(':scope > .ind');
+  if (!ind) {
+    ind = document.createElement('span');
+    ind.className = 'ind';
+    ind.setAttribute('aria-hidden', 'true');
+    box.prepend(ind);
+  }
+  const now = {
+    x: ar.left - br.left - box.clientLeft + box.scrollLeft,
+    y: ar.top - br.top - box.clientTop + box.scrollTop,
+    w: ar.width, h: ar.height, c: color || '',
+  };
+  const put = (b) => {
+    ind.style.transform = `translate(${b.x}px, ${b.y}px)`;
+    ind.style.width = b.w + 'px';
+    ind.style.height = b.h + 'px';
+    if (b.c) ind.style.backgroundColor = b.c;
+  };
+  const prev = IND[key];
+  if (prev && !reduced()) {
+    ind.style.transition = 'none';
+    put(prev);
+    void ind.getBoundingClientRect();
+    ind.style.transition = '';
+  }
+  put(now);
+  IND[key] = now;
+  return !!(prev && (Math.abs(prev.x - now.x) > 1 || Math.abs(prev.y - now.y) > 1));
+}
+/** Пока ползунок едет, подпись нового пункта плавно меняет цвет (иначе она на миг сливается с фоном). */
+function moving(box, moved) {
+  if (!box || !moved || reduced()) return;
+  box.classList.add('moving');
+  clearTimeout(box._mv);
+  box._mv = setTimeout(() => box.classList.remove('moving'), 460);
+}
+function stageIndicator(smooth) {
+  const box = $('.stage-tabs'), on = box && $('.stage-tab.on', box);
+  if (!on) return;
+  moving(box, placeIndicator('stage', box, on, getComputedStyle(on).getPropertyValue('--c').trim()));
+  const l = on.offsetLeft, r = l + on.offsetWidth;
+  if (l < box.scrollLeft + 12 || r > box.scrollLeft + box.clientWidth - 12) {
+    box.scrollTo({ left: Math.max(0, l - (box.clientWidth - on.offsetWidth) / 2), behavior: smooth && !reduced() ? 'smooth' : 'auto' });
+  }
+}
+
+/** После каждой перерисовки: ползунки, появление, подпрыгивание изменившихся чисел, непрерывные волны. */
+function afterRender(anim) {
+  placeIndicator('tabbar', $('.tabbar'), $('.tab.on'));
+  moving($('.side-nav'), placeIndicator('side', $('.side-nav'), $('.nav-item.on')));
+  placeIndicator('tasks-seg', $('.seg-btns'), $('.seg-btns .chip.on'));
+  stageIndicator(false);
+  const view = $('#view');
+  if (anim === 'soft') staggerIn(view, isWide() ? '.section, .card' : '.section, .col.on .card', 16);
+  else if (anim) staggerIn(view, isWide() ? '.hello, .toolbar, .section, .card' : '.hello, .toolbar, .stage-tabs, .section, .col.on .card', 16);
+  const nums = [];
+  $$('.stat', view).forEach((el, i) => nums.push(['s' + i, $('b', el).textContent, el]));
+  TAB_ORDER.forEach((v) => {
+    [['t', '.tab'], ['n', '.nav-item']].forEach(([p, sel]) => {
+      const b = $(`${sel}[data-v="${v}"] .badge`);
+      nums.push([p + v, b ? b.textContent : '', b]);
+    });
+  });
+  nums.forEach(([k, val, el]) => {
+    if (!anim && k in S.nums && S.nums[k] !== val && el) flash(el);
+    S.nums[k] = val;
+  });
+  // волны продолжают движение с того же места, а не начинают заново после перерисовки
+  const t = performance.now() / 1000;
+  const hero = $('.hello');
+  if (hero) hero.style.setProperty('--wave-t', `-${(t % 18).toFixed(2)}s`);
+  const side = $('.sidebar');
+  if (side) side.style.setProperty('--wave-t', `-${(t % 36).toFixed(2)}s`);
+}
+
+/** Пока данные грузятся в первый раз — силуэт интерфейса вместо пустого экрана. */
+function renderSkeleton() {
+  $('#app').innerHTML = `
+    <aside class="sidebar"><div class="brand"><span class="mark">${mark()}</span><span>Эспада CRM</span></div>
+      <div class="sk sk-nav"></div><div class="sk sk-nav"></div><div class="sk sk-nav"></div></aside>
+    <div class="app-body" aria-busy="true">
+      <header class="topbar"><div class="tb-logo">${LOGO}</div>
+        <div style="flex:1;min-width:0"><div class="sk sk-h1"></div><div class="sk sk-sub"></div></div></header>
+      <main><div class="sk sk-hero"></div>
+        <div class="sk sk-sec"></div><div class="sk sk-list"></div>
+        <div class="sk sk-sec"></div><div class="sk sk-list"></div></main>
+    </div>`;
+}
+
+/** Полоса загрузки сверху и кружок «потяните, чтобы обновить». */
+function addChrome() {
+  if (!$('#progress')) document.body.insertAdjacentHTML('beforeend', '<div id="progress" aria-hidden="true"></div>');
+  if (!$('#ptr')) document.body.insertAdjacentHTML('beforeend', `<div id="ptr" aria-hidden="true"><span>${ic('refresh', 2.2)}</span></div>`);
+}
+
+/** Жесты на телефоне: тень у шапки, смахивание этапов, «потяните, чтобы обновить». */
+function initGestures() {
+  let ticking = false;
+  addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => { document.body.classList.toggle('scrolled', window.scrollY > 4); ticking = false; });
+  }, { passive: true });
+
+  // Смахивание влево-вправо на доске — соседний этап
+  let sw = null;
+  document.addEventListener('touchstart', (e) => {
+    sw = null;
+    const t = e.target;
+    if (!t.closest || isWide() || stack.length || e.touches.length > 1 || !t.closest('#boardWrap') || t.closest('.stage-tabs')) return;
+    sw = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!sw) return;
+    const p = e.changedTouches[0], dx = p.clientX - sw.x, dy = p.clientY - sw.y, dt = Date.now() - sw.t;
+    sw = null;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6 || dt > 700) return;
+    const i = STAGES.indexOf(S.stage) + (dx < 0 ? 1 : -1);
+    if (i < 0 || i >= STAGES.length) return;
+    S.stage = STAGES[i];
+    buzz(6);
+    redrawBoard(dx < 0 ? 'left' : 'right', true);
+  }, { passive: true });
+
+  // Потянуть вниз вверху страницы — обновить данные
+  const ptr = $('#ptr');
+  const icon = ptr.firstElementChild;
+  let pl = null;
+  const show = (d) => {
+    ptr.style.transform = `translateY(${d - 50}px)`;
+    ptr.style.opacity = String(Math.min(1, d / 34));
+    icon.style.transform = `rotate(${d * 3.2}deg)`;
+    const ready = d >= 64;
+    if (ready && !ptr.classList.contains('ready')) buzz(6);
+    ptr.classList.toggle('ready', ready);
+  };
+  const hide = () => {
+    ptr.classList.remove('drag', 'ready', 'spin');
+    ptr.style.transform = '';
+    ptr.style.opacity = '';
+    icon.style.transform = '';
+  };
+  document.addEventListener('touchstart', (e) => {
+    pl = null;
+    if (!S.d || stack.length || isWide() || window.scrollY > 0 || e.touches.length > 1 || ptr.classList.contains('spin')) return;
+    if (e.target.closest && e.target.closest('.stage-tabs, .chips.nowrap, input, textarea, select')) return;
+    pl = { x: e.touches[0].clientX, y: e.touches[0].clientY, d: 0, on: false };
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!pl) return;
+    const y = e.touches[0].clientY, dy = y - pl.y, dx = e.touches[0].clientX - pl.x;
+    if (!pl.on) {
+      if (dy > 10 && dy > Math.abs(dx) * 1.4 && window.scrollY <= 0) { pl.on = true; pl.y += 10; ptr.classList.add('drag'); }
+      else if (dy < -4 || Math.abs(dx) > 16) { pl = null; return; } else return;
+    }
+    pl.d = Math.min(120, Math.max(0, (y - pl.y) * 0.55));
+    show(pl.d);
+  }, { passive: true });
+  const end = () => {
+    if (!pl || !pl.on) { pl = null; return; }
+    const go = pl.d >= 64;
+    pl = null;
+    ptr.classList.remove('drag');
+    if (!go) { hide(); return; }
+    ptr.classList.remove('ready');
+    ptr.classList.add('spin');
+    ptr.style.transform = 'translateY(16px)';
+    ptr.style.opacity = '1';
+    icon.style.transform = '';
+    Promise.resolve(load()).finally(() => setTimeout(hide, 260));
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', end, { passive: true });
+}
+
 /* ============================== Экран «Сегодня» ============================== */
 
 function viewToday() {
@@ -367,33 +616,42 @@ function viewToday() {
   const pays = paymentsDue();
   const tLeft = trials.filter((x) => !x.reminded);
 
+  const stat = (n, forms, to, warn) => `<button type="button" class="stat ${warn ? 'warn' : ''}" data-act="jump" data-to="${to}">
+      <b>${n}</b><span>${plural(n, forms)}</span></button>`;
   const stats = `<div class="hello">
-    <div class="stat ${overdue.length ? 'warn' : ''}"><b>${overdue.length}</b><span>просрочено</span></div>
-    <div class="stat"><b>${todays.length}</b><span>задач</span></div>
-    <div class="stat"><b>${tLeft.length}</b><span>пробных</span></div>
-    <div class="stat"><b>${pays.length}</b><span>оплат</span></div>
+    ${stat(overdue.length, ['просрочено', 'просрочено', 'просрочено'], overdue.length ? 'sec-overdue' : 'sec-tasks', overdue.length)}
+    ${stat(todays.length, ['задача', 'задачи', 'задач'], 'sec-tasks')}
+    ${stat(tLeft.length, ['пробный', 'пробных', 'пробных'], 'sec-trials')}
+    ${stat(pays.length, ['оплата', 'оплаты', 'оплат'], 'sec-pays')}
   </div>`;
 
-  const sec = (title, count, body, extra = '') =>
-    `<section class="section"><div class="section-h"><h2>${title}</h2>${extra}${count != null ? `<span class="count">${count}</span>` : ''}</div>${body}</section>`;
+  const sec = (id, title, count, body) =>
+    `<section class="section" id="${id}"><div class="section-h"><h2>${title}</h2>${count != null ? `<span class="count">${count}</span>` : ''}</div>${body}</section>`;
+  // Длинные списки показываем по 5 строк, остальное — по кнопке «Показать все»
+  const LIMIT = 5;
+  const list = (k, items, row) => {
+    const all = S.expanded[k] || items.length <= LIMIT + 1;
+    return `<div class="list" data-list="${k}">${(all ? items : items.slice(0, LIMIT)).map(row).join('')}${all ? ''
+      : `<button type="button" class="more-btn" data-act="expand" data-k="${k}">Показать все · ${items.length}${ic('chev', 2.4)}</button>`}</div>`;
+  };
 
   let left = '', right = '', pay = '';
-  if (fresh.length) left += sec('Новые — ответить', fresh.length, `<div class="list">${fresh.map(freshRow).join('')}</div>`);
-  if (overdue.length) left += sec('Просрочено', overdue.length, `<div class="list">${overdue.map(taskRow).join('')}</div>`);
-  left += sec('Задачи на сегодня', todays.length || null,
-    todays.length ? `<div class="list">${todays.map(taskRow).join('')}</div>`
-      : `<div class="list"><div class="empty">${overdue.length ? 'Остальное на сегодня сделано' : 'На сегодня задач нет 🎉'}</div></div>`);
-  right += sec('Пробные сегодня', trials.length ? `${trials.length - tLeft.length}/${trials.length} напомнили` : null,
-    trials.length ? `<div class="list">${trials.map(trialRow).join('')}</div>` : '<div class="list"><div class="empty">Сегодня пробных нет</div></div>');
+  if (fresh.length) left += sec('sec-fresh', 'Новые — ответить', fresh.length, list('fresh', fresh, freshRow));
+  if (overdue.length) left += sec('sec-overdue', 'Просрочено', overdue.length, list('overdue', overdue, taskRow));
+  left += sec('sec-tasks', 'Задачи на сегодня', todays.length || null,
+    todays.length ? list('todays', todays, taskRow)
+      : `<div class="list">${emptyState(overdue.length ? 'Остальное на сегодня сделано' : 'На сегодня задач нет')}</div>`);
+  right += sec('sec-trials', 'Пробные сегодня', trials.length ? `${trials.length - tLeft.length}/${trials.length} напомнили` : null,
+    trials.length ? list('trials', trials, (x) => trialRow(x)) : `<div class="list">${emptyState('Сегодня пробных нет', 'trial')}</div>`);
   if (tomorrow.length) {
     const left2 = tomorrow.filter((x) => !x.reminded).length;
-    right += sec('Пробные завтра — напомнить накануне', `${tomorrow.length - left2}/${tomorrow.length} напомнили`,
-      `<div class="list">${tomorrow.map((x) => trialRow(x, 'eve|')).join('')}</div>`);
+    right += sec('sec-tomorrow', 'Пробные завтра — напомнить накануне', `${tomorrow.length - left2}/${tomorrow.length} напомнили`,
+      list('tomorrow', tomorrow, (x) => trialRow(x, 'eve|')));
   }
-  if (noRes.length) right += sec('Заполните итог пробного', noRes.length, `<div class="list">${noRes.map(noResRow).join('')}</div>`);
+  if (noRes.length) right += sec('sec-nores', 'Заполните итог пробного', noRes.length, list('nores', noRes, noResRow));
   if (isMain() || pays.length) {
-    pay += sec('Напомнить об оплате', pays.length || null,
-      pays.length ? `<div class="list">${pays.map(payRow).join('')}</div>` : '<div class="list"><div class="empty">Всем напомнили 👍</div></div>');
+    pay += sec('sec-pays', 'Напомнить об оплате', pays.length || null,
+      pays.length ? list('pays', pays, payRow) : `<div class="list">${emptyState('Всем напомнили')}</div>`);
   }
   return stats + `<div class="today-grid"><div class="g1">${left}</div><div class="g2">${right}</div><div class="g3">${pay}</div></div>`;
 }
@@ -411,11 +669,11 @@ function freshRow(l) {
       </div>
     </div></div>`;
 }
-function taskRow(t) {
+function taskRow(t, o = {}) {
   const lead = t.leadId ? leadById(t.leadId) : null;
   const late = t.due && t.due < nowS();
   const meta = [];
-  if (lead || t.leadName) meta.push(`<a data-act="lead" data-id="${esc(t.leadId)}">${esc(lead ? leadLabel(lead) : t.leadName)}</a>`);
+  if ((lead || t.leadName) && !o.inLead) meta.push(`<a data-act="lead" data-id="${esc(t.leadId)}">${esc(lead ? leadLabel(lead) : t.leadName)}</a>`);
   meta.push(`<span class="pill ${late ? 'red' : ''}">${ic('clock', 2)}${esc(dueLabel(t.due))}</span>`);
   if (t.owner && t.owner !== me()) meta.push(esc(t.owner));
   return `<div class="row ${t.done ? 'done' : ''}">
@@ -429,12 +687,13 @@ function taskRow(t) {
     </div></div>`;
 }
 function trialRow(x, prefix = '') {
+  if (typeof prefix !== 'string') prefix = ''; // защита от map(trialRow): там второй аргумент — номер строки
   const lead = leadByPhone(x.phone);
   const key = prefix + trialKey(x);
   return `<div class="row ${x.reminded ? 'done' : ''}">
     <div class="time-col">${esc(x.time)}</div>
     <div class="main">
-      <div class="title">${lead ? `<a data-act="lead" data-id="${esc(lead.id)}">${esc(x.name || 'без имени')}</a>` : esc(x.name || 'без имени')}
+      <div class="title"><span class="t-inline">${esc(x.time)}</span>${lead ? `<a data-act="lead" data-id="${esc(lead.id)}">${x.name ? esc(x.name) : NONAME}</a>` : x.name ? esc(x.name) : NONAME}
         ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
       <div class="meta">${[x.teacher, x.format, prettyPhone(x.phone)].filter(Boolean).map(esc).join(' · ')}</div>
       <div class="actions">
@@ -448,7 +707,7 @@ function trialRow(x, prefix = '') {
 function noResRow(x) {
   return `<div class="row stack">
     <div class="main">
-      <div class="title">${esc(x.name || 'без имени')} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
+      <div class="title">${x.name ? esc(x.name) : NONAME} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
       <div class="meta">${esc(dayLabel(x.date))}, ${esc(x.time)} · ${esc(x.teacher)}${x.phone ? ' · ' + esc(prettyPhone(x.phone)) : ''}</div>
       <div class="acts">
         ${waUrl(x.phone) ? `<div class="actions">${waBtn(x.phone, '', 'Написать')}${telBtn(x.phone)}</div>` : ''}
@@ -485,6 +744,8 @@ function telBtn(phone) {
   return u ? `<a class="btn" href="${esc(u)}" aria-label="Позвонить">${ic('phone', 2)}</a>` : '';
 }
 const leadLabel = (l) => (l.name || prettyPhone(l.phone) || 'Без имени') + (l.grade ? `, ${gr(l.grade)}` : '');
+const emptyState = (text, icon = 'check') => `<div class="empty"><span class="empty-ic">${ic(icon, 2.2)}</span><span>${esc(text)}</span></div>`;
+const loadingState = (text) => `<div class="empty"><span class="spinner" aria-hidden="true"></span><span>${esc(text)}</span></div>`;
 
 /* ============================== Канбан ============================== */
 
@@ -526,7 +787,7 @@ function boardInner() {
       const list = stageList(st, leads);
       return `<div class="col ${STAGE_CLS[st]} ${S.stage === st ? 'on' : ''}" data-stage="${esc(st)}">
         <div class="col-h"><span class="dot"></span>${esc(st)}<span class="n">${list.length}</span></div>
-        <div class="cards">${list.map((l) => leadCard(l, wide)).join('') || '<div class="empty">Пусто</div>'}</div></div>`;
+        <div class="cards">${list.map((l) => leadCard(l, wide)).join('') || `<div class="empty col-empty">${wide ? 'Перетащите карточку сюда' : 'В этом этапе пока никого'}</div>`}</div></div>`;
     }).join('')}</div>`;
 }
 function leadCard(l, draggable) {
@@ -554,7 +815,22 @@ function leadCard(l, draggable) {
 function bindBoard() {
   const q = $('#q');
   if (q) {
-    q.oninput = () => { S.q = q.value; $('#boardWrap').innerHTML = boardInner(); };
+    q.oninput = () => { S.q = q.value; redrawBoard(); };
+  }
+}
+/** Перерисовать только доску (поиск, смена этапа) — с ползунком и сдвигом колонки в нужную сторону. */
+function redrawBoard(dir, smooth) {
+  const wrap = $('#boardWrap');
+  if (!wrap) return;
+  const tabs = $('.stage-tabs', wrap);
+  const sl = tabs ? tabs.scrollLeft : 0;
+  wrap.innerHTML = boardInner();
+  const nt = $('.stage-tabs', wrap);
+  if (nt) nt.scrollLeft = sl;
+  stageIndicator(smooth);
+  if (dir && !reduced()) {
+    const col = $('.col.on', wrap);
+    if (col) { col.classList.add('enter-' + dir); staggerIn(col, '.card', 10); }
   }
 }
 /* Перетаскивание карточек на компьютере */
@@ -586,6 +862,8 @@ function changeStage(l, stage) {
   if (stage === 'Пробный') return openBooking(l.id);
   if (stage === 'Отказ') return openLost(l.id);
   run('moveLead', { id: l.id, stage }, () => { l.stage = stage; }).then(() => toast(`${l.name || 'Лид'} → ${stage}`)).catch(() => {});
+  const card = document.querySelector(`.card[data-id="${CSS.escape(l.id)}"]`);
+  if (card) flash(card, 'landed');
 }
 
 /* ============================== Задачи ============================== */
@@ -603,16 +881,16 @@ function viewTasks() {
   const done = S.d.tasks.filter((x) => x.done && !x.key && (S.allTasks || myTask(x)))
     .sort((a, b) => (a.doneAt < b.doneAt ? 1 : -1)).slice(0, 15);
   return `<div class="toolbar">
-      <div class="seg" style="flex:1">
-        <button class="chip" data-act="allTasks" data-v="0"><span style="${!S.allTasks ? 'background:var(--card);box-shadow:var(--shadow)' : ''}">Мои</span></button>
-        <button class="chip" data-act="allTasks" data-v="1"><span style="${S.allTasks ? 'background:var(--card);box-shadow:var(--shadow)' : ''}">Все</span></button>
+      <div class="seg seg-btns" style="flex:1">
+        <button type="button" class="chip ${!S.allTasks ? 'on' : ''}" data-act="allTasks" data-v="0"><span>Мои</span></button>
+        <button type="button" class="chip ${S.allTasks ? 'on' : ''}" data-act="allTasks" data-v="1"><span>Все</span></button>
       </div>
       <button class="toggle" data-act="addTask">+ Задача</button>
     </div>
     ${groups.filter((g) => g[1].length).map(([title, items]) => `<section class="section">
       <div class="section-h"><h2>${title}</h2><span class="count">${items.length}</span></div>
       <div class="list">${items.sort(byDue).map(taskRow).join('')}</div></section>`).join('')
-      || '<section class="section"><div class="list"><div class="empty">Открытых задач нет 🎉</div></div></section>'}
+      || `<section class="section"><div class="list">${emptyState('Открытых задач нет')}</div></section>`}
     ${done.length ? `<section class="section"><div class="section-h"><h2>Недавно выполнены</h2></div>
       <div class="list">${done.map(taskRow).join('')}</div></section>` : ''}`;
 }
@@ -658,7 +936,7 @@ function viewMore() {
   </div><div>
   <section class="section"><div class="section-h"><h2>Последние 30 дней</h2></div><div class="list">
     <div class="funnel">
-      <div><b>${recent.length}</b><span>новых лидов</span></div>
+      <div><b>${recent.length}</b><span>${plural(recent.length, ['новый лид', 'новых лида', 'новых лидов'])}</span></div>
       <div><b>${withTrial.length}</b><span>на пробный · ${pct(withTrial.length, recent.length)}</span></div>
       <div><b>${won.length}</b><span>записались · ${pct(won.length, recent.length)}</span></div>
       <div><b>${lost.length}</b><span>отказ</span></div>
@@ -707,6 +985,8 @@ function openSheet(build, opts = {}) {
   $('#sheets').appendChild(wrap);
   stack.push(sh);
   sh.render();
+  panel.addEventListener('scroll', () => panel.classList.toggle('scrolled', panel.scrollTop > 4), { passive: true });
+  dragToClose(sh);
   document.body.style.overflow = 'hidden';
   return sh;
 }
@@ -714,11 +994,60 @@ function closeSheet(sh) {
   const i = stack.indexOf(sh);
   if (i < 0) return;
   stack.splice(i, 1);
+  sh.panel.style.animation = '';
   sh.wrap.classList.add('closing');
   sh.panel.classList.add('closing');
-  setTimeout(() => sh.wrap.remove(), 200);
+  setTimeout(() => sh.wrap.remove(), reduced() ? 0 : 270);
   if (!stack.length) document.body.style.overflow = '';
   if (sh.onClose) sh.onClose();
+}
+/** Нижнее окно можно смахнуть вниз пальцем, как в iOS. */
+function dragToClose(sh) {
+  const p = sh.panel, bd = $('.sheet-backdrop', sh.wrap);
+  let d = null;
+  p.addEventListener('touchstart', (e) => {
+    d = null;
+    if (isWide() || e.touches.length > 1 || p.scrollTop > 0) return;
+    if (e.target.closest('input, textarea, select, .chips.nowrap, .slots')) return;
+    d = { x: e.touches[0].clientX, y: e.touches[0].clientY, dy: 0, on: false, t: Date.now() };
+  }, { passive: true });
+  p.addEventListener('touchmove', (e) => {
+    if (!d) return;
+    const y = e.touches[0].clientY, dy = y - d.y, dx = e.touches[0].clientX - d.x;
+    if (!d.on) {
+      if (dy > 8 && dy > Math.abs(dx) * 1.2 && p.scrollTop <= 0) {
+        d.on = true;
+        d.y += 8;
+        p.style.animation = 'none';
+        p.style.transition = 'none';
+        bd.style.transition = 'none';
+      } else if (dy < -4 || Math.abs(dx) > 12) { d = null; return; } else return;
+    }
+    e.preventDefault();
+    d.dy = Math.max(0, y - d.y);
+    p.style.transform = `translateY(${d.dy}px)`;
+    bd.style.opacity = String(Math.max(0, 1 - d.dy / (p.offsetHeight || 1)));
+  }, { passive: false });
+  const end = () => {
+    if (!d || !d.on) { d = null; return; }
+    const v = d.dy / Math.max(1, Date.now() - d.t);
+    const shut = d.dy > Math.min(140, p.offsetHeight * 0.3) || (v > 0.5 && d.dy > 30);
+    p.style.transition = '';
+    bd.style.transition = '';
+    if (shut) {
+      buzz(6);
+      bd.style.opacity = '';
+      sh.close();
+    } else {
+      p.classList.add('snap');
+      p.style.transform = '';
+      bd.style.opacity = '';
+      setTimeout(() => p.classList.remove('snap'), 360);
+    }
+    d = null;
+  };
+  p.addEventListener('touchend', end, { passive: true });
+  p.addEventListener('touchcancel', end, { passive: true });
 }
 function rerenderSheets() {
   stack.forEach((sh) => {
@@ -736,7 +1065,7 @@ const sheetHead = (title) => `<div class="sheet-h"><h3>${title}</h3><button clas
 /** Меню выбора. onPick вызывается прямо в обработчике нажатия (важно для открытия WhatsApp на iPhone). */
 function pick(title, items) {
   openSheet(() => sheetHead(title) + `<div class="menu">${items.map((it, i) => `<button data-i="${i}" class="${it.cls || ''} ${it.cur ? 'cur' : ''}">
-      ${it.dot ? '<span class="dot"></span>' : ''}<span>${esc(it.label)}</span>${it.note ? `<small>${esc(it.note)}</small>` : ''}</button>`).join('')}</div>`, {
+      ${it.dot ? '<span class="dot"></span>' : ''}<span>${esc(it.label)}</span>${it.note ? `<small>${esc(it.note)}</small>` : ''}${it.cur ? `<span class="cur-mark">${ic('check', 2.6)}</span>` : ''}</button>`).join('')}</div>`, {
     small: true,
     after: (sh) => $$('.menu button', sh.panel).forEach((b) => {
       b.onclick = () => { sh.close(); items[b.dataset.i].onPick(); };
@@ -771,11 +1100,14 @@ function leadSheet(id) {
   const log = (l.log || '').split('\n').filter(Boolean).reverse()
     .map((x) => esc(x).replace(/^(\d\d\.\d\d \d\d:\d\d)( [^:]{1,30}:)?/, '<b>$1$2</b>')).join('\n');
   return sheetHead('') + `
-    <div class="lead-head">
-      <div class="nm">${esc(l.name || 'Без имени')}</div>
-      <div class="info">
-        <button class="pill stage-pill ${STAGE_CLS[l.stage]}" data-act="leadStage" data-id="${esc(l.id)}"><span class="dot"></span>${esc(l.stage)} ▾</button>
-        ${[/^\d+$/.test(String(l.grade).trim()) ? l.grade + ' класс' : gr(l.grade), l.format, l.source].filter(Boolean).map(esc).join(' · ')}
+    <div class="lead-head ${STAGE_CLS[l.stage]}">
+      <div class="ava" aria-hidden="true">${l.name && l.name.trim() ? esc(l.name.trim()[0].toUpperCase()) : ic('phone', 2)}</div>
+      <div class="lh">
+        <div class="nm">${l.name ? esc(l.name) : esc(prettyPhone(l.phone) || 'Без имени')}</div>
+        <div class="info">
+          <button class="pill stage-pill ${STAGE_CLS[l.stage]}" data-act="leadStage" data-id="${esc(l.id)}"><span class="dot"></span>${esc(l.stage)}${ic('chev', 2.6)}</button>
+          ${[/^\d+$/.test(String(l.grade).trim()) ? l.grade + ' класс' : gr(l.grade), l.format, l.source].filter(Boolean).map(esc).join(' · ')}
+        </div>
       </div>
     </div>
     <div class="quick">
@@ -789,7 +1121,7 @@ function leadSheet(id) {
       <div class="actions"><button class="btn primary" data-act="enroll" data-lead="${esc(l.id)}">Добавить в Базу</button></div></div></div></div></section>` : ''}
     ${trial}
     <section class="section"><div class="section-h"><h2>Задачи</h2><button class="link" data-act="addTask" data-lead="${esc(l.id)}">+ Добавить</button></div>
-      <div class="list">${tasks.length ? tasks.map(taskRow).join('') : `<div class="empty">${ACTIVE.includes(l.stage) ? 'Нет следующего шага — добавьте задачу' : 'Задач нет'}</div>`}</div></section>
+      <div class="list">${tasks.length ? tasks.map((x) => taskRow(x, { inLead: true })).join('') : emptyState(ACTIVE.includes(l.stage) ? 'Нет следующего шага — добавьте задачу' : 'Задач нет', 'task')}</div></section>
     <section class="section"><div class="section-h"><h2>Данные</h2><button class="link" data-act="editLead" data-id="${esc(l.id)}">Изменить</button></div>
       <div class="list kv">
         <div class="k">Телефон</div><div>${l.phone ? `<a href="${esc(telUrl(l.phone))}">${esc(prettyPhone(l.phone))}</a>` : '—'}</div>
@@ -937,7 +1269,7 @@ function openBooking(id) {
         if (!st.teacher) { box.innerHTML = '<div class="hint" style="margin:0 4px">Сначала выберите преподавателя</div>'; return; }
         const k = st.teacher + '|' + st.date;
         if (!S.slots[k] || Date.now() - S.slots[k].at > 120000) {
-          box.innerHTML = '<div class="hint" style="margin:0 4px">Загружаю расписание…</div>';
+          box.innerHTML = '<div class="hint loading-hint"><span class="spinner" aria-hidden="true"></span>Загружаю расписание…</div>';
           try { S.slots[k] = { at: Date.now(), r: await call('slots', { teacher: st.teacher, date: st.date }) }; } catch (e) { box.innerHTML = `<div class="warnbox errbox">${esc(e.message)}</div>`; return; }
           if (k !== st.teacher + '|' + st.date) return;
         }
@@ -1001,7 +1333,7 @@ function openEnroll(src) {
   };
   const sh = openSheet((sh) => {
     const m = sh.data.meta;
-    if (!m) return sheetHead('Добавить в Базу') + `<div class="list"><div class="empty">${esc(sh.data.err || 'Загружаю справочники из Базы…')}</div></div>`;
+    if (!m) return sheetHead('Добавить в Базу') + `<div class="list">${sh.data.err ? `<div class="empty">${esc(sh.data.err)}</div>` : loadingState('Загружаю справочники из Базы…')}</div>`;
     const teachers = m.teachers.length ? m.teachers : S.d.teachers;
     return sheetHead('Добавить в Базу') + `
     <form id="enrollForm" autocomplete="off">
@@ -1080,7 +1412,7 @@ function openPayment(p) {
     const i = sh.data.info;
     const head = sheetHead('Оплата') + `<p class="hint" style="margin-top:0">${esc(p.name)} · ${esc(p.teacher)}</p>`;
     if (sh.data.err) return head + `<div class="warnbox errbox">${esc(sh.data.err)}</div>`;
-    if (!i) return head + '<div class="list"><div class="empty">Ищу ученика в «Базе учеников»…</div></div>';
+    if (!i) return head + `<div class="list">${loadingState('Ищу ученика в «Базе учеников»…')}</div>`;
     const mode = i.debt > 0 && p.status === 'Долг' ? 'add' : 'renew';
     return head + `
       <div class="list kv">
@@ -1215,20 +1547,61 @@ function setDone(id, done) {
 /* ============================== Действия ============================== */
 
 const ACT = {
-  tab(el) { S.view = el.dataset.v; lsSet('espada-view', S.view); render(); window.scrollTo(0, 0); },
+  tab(el) {
+    const v = el.dataset.v;
+    if (v === S.view) { window.scrollTo({ top: 0, behavior: reduced() ? 'auto' : 'smooth' }); return; }
+    const dir = TAB_ORDER.indexOf(v) > TAB_ORDER.indexOf(S.view) ? 'left' : 'right';
+    S.view = v;
+    lsSet('espada-view', v);
+    window.scrollTo(0, 0);
+    render({ anim: dir });
+    flash($('.tab.on svg'), 'pop');
+  },
   refresh() { load(); },
   reload() { location.reload(); },
   close(el) { const sh = sheetOf(el); if (sh) sh.close(); },
   newLead() { openLeadForm(); },
   lead(el) { openLead(el.dataset.id); },
   editLead(el) { openLeadForm(el.dataset.id); },
-  stage(el) { S.stage = el.dataset.v; $('#boardWrap').innerHTML = boardInner(); },
-  mine() { S.mine = !S.mine; render(); },
-  allTasks(el) { S.allTasks = el.dataset.v === '1'; render(); },
+  stage(el) {
+    const v = el.dataset.v;
+    if (v === S.stage) return;
+    const dir = STAGES.indexOf(v) > STAGES.indexOf(S.stage) ? 'left' : 'right';
+    S.stage = v;
+    redrawBoard(dir, true);
+  },
+  mine() { S.mine = !S.mine; render({ anim: 'soft' }); },
+  allTasks(el) {
+    const v = el.dataset.v === '1';
+    if (v === S.allTasks) return;
+    S.allTasks = v;
+    render({ anim: 'soft' });
+  },
   task(el) { openTask(el.dataset.id); },
   addTask(el) { openTask(null, el.dataset.lead); },
-  taskDone(el) { const t = S.d.tasks.find((x) => x.id === el.dataset.id); if (t) setDone(t.id, !t.done); },
-  toStage(el) { changeStage(leadById(el.dataset.id), el.dataset.v); },
+  taskDone(el) {
+    const t = S.d.tasks.find((x) => x.id === el.dataset.id);
+    if (!t) return;
+    if (t.done) { setDone(t.id, false); return; }
+    const row = el.closest('.row');
+    if (!row || row.classList.contains('completing')) return;
+    // галочка «прорисовывается», строка зачёркивается и схлопывается — потом задача уходит на сервер
+    row.classList.add('completing');
+    el.classList.add('on');
+    flash(el, 'pop');
+    buzz(12);
+    wait(reduced() ? 0 : 340).then(() => collapseOut(row)).then(() => setDone(t.id, true));
+  },
+  toStage(el) {
+    const l = leadById(el.dataset.id), v = el.dataset.v;
+    const row = el.closest('#view .row');
+    if (row && v !== 'Пробный' && v !== 'Отказ') {
+      row.classList.add('completing');
+      collapseOut(row).then(() => changeStage(l, v));
+      return;
+    }
+    changeStage(l, v);
+  },
   book(el) { openBooking(el.dataset.id); },
   enroll(el) { openEnroll({ leadId: el.dataset.lead }); },
   pay(el) { const p = S.d.payments.find((x) => x.key === el.dataset.key); if (p) openPayment(p); },
@@ -1261,19 +1634,48 @@ const ACT = {
   trialRes(el) {
     const row = Number(el.dataset.row), v = el.dataset.v;
     const tr = S.d.trials.find((x) => x.row === row);
-    run('setTrialResult', { row, result: v, phone: el.dataset.phone, leadId: el.dataset.lead }, () => { if (tr) tr.result = v; })
+    const go = () => run('setTrialResult', { row, result: v, phone: el.dataset.phone, leadId: el.dataset.lead }, () => { if (tr) tr.result = v; })
       .then((r) => {
         const nl = r.leads && r.leads[0];
         if (v === 'Записался') openEnroll({ leadId: nl ? nl.id : '', trial: tr });
         else if (nl) toast(`Итог сохранён · ${nl.stage}`);
         else toast('Итог записан в «Пробные»');
       }).catch(() => {});
+    const rowEl = el.closest('#view .row');
+    if (rowEl) {
+      rowEl.classList.add('completing');
+      buzz(8);
+      collapseOut(rowEl).then(go);
+    } else go();
   },
   dismiss(el) {
     const { key, title, lead } = el.dataset;
-    run('dismiss', { key, title, leadId: lead || '' }, () => {
+    const go = () => run('dismiss', { key, title, leadId: lead || '' }, () => {
       S.d.tasks.push({ id: 'tmp-' + Date.now(), key, title, done: true, doneAt: nowS() });
     }).catch(() => {});
+    buzz(8);
+    const rowEl = el.closest('.row');
+    if (key.startsWith('pay|') && rowEl) {
+      rowEl.classList.add('completing');
+      collapseOut(rowEl).then(go);
+      return;
+    }
+    go();
+    const u = document.querySelector(`[data-act="undismiss"][data-key="${CSS.escape(key)}"]`);
+    if (u && u.previousElementSibling) flash(u.previousElementSibling, 'bump');
+  },
+  jump(el) {
+    const sec = document.getElementById(el.dataset.to);
+    if (!sec) return;
+    sec.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
+    setTimeout(() => flash($('.section-h', sec), 'glow'), reduced() ? 0 : 380);
+  },
+  expand(el) {
+    const k = el.dataset.k;
+    const before = $$(`.list[data-list="${k}"] .row`).length;
+    S.expanded[k] = true;
+    render();
+    staggerIn($(`.list[data-list="${k}"]`), `.row:nth-child(n+${before + 1})`, 40);
   },
   undismiss(el) {
     const key = el.dataset.key;
@@ -1326,12 +1728,23 @@ document.addEventListener('keydown', (e) => {
 /* ============================== Уведомления ============================== */
 
 function toast(msg, o = {}) {
+  const box = $('#toast');
+  while (box.children.length >= 3) box.firstElementChild.remove();
   const el = document.createElement('div');
   el.className = 'toast' + (o.err ? ' err' : '');
-  el.innerHTML = `<span>${esc(msg)}</span>${o.action ? `<button>${esc(o.action)}</button>` : ''}`;
-  if (o.action) $('button', el).onclick = () => { el.remove(); o.onAction(); };
-  $('#toast').appendChild(el);
-  setTimeout(() => el.remove(), o.action ? 7000 : o.err ? 5000 : 2600);
+  el.setAttribute('role', o.err ? 'alert' : 'status');
+  el.innerHTML = `<i class="t-ic">${ic(o.err ? 'alert' : 'check', 2.4)}</i><span>${esc(msg)}</span>${o.action ? `<button type="button">${esc(o.action)}</button>` : ''}`;
+  let gone = false;
+  const hide = () => {
+    if (gone) return;
+    gone = true;
+    el.classList.add('out');
+    setTimeout(() => el.remove(), reduced() ? 0 : 240);
+  };
+  if (o.action) $('button', el).onclick = (e) => { e.stopPropagation(); hide(); o.onAction(); };
+  el.addEventListener('click', hide);
+  box.appendChild(el);
+  setTimeout(hide, o.action ? 7000 : o.err ? 5000 : 2600);
 }
 
 /* ============================== Запуск ============================== */
@@ -1339,9 +1752,11 @@ function toast(msg, o = {}) {
 function boot() {
   applySkin(lsGet('espada-skin'));
   if (!CFG.demo && !(CFG.api && CFG.key)) return renderLogin();
-  try { const c = JSON.parse(lsGet(cacheKey()) || 'null'); if (c && c.leads) { S.d = c; render(); } } catch { /* кеш повреждён */ }
-  if (!S.d) $('#app').innerHTML = `<div class="login"><div class="logo">${mark()}</div><p>Загружаю…</p></div>`;
+  addChrome();
+  try { const c = JSON.parse(lsGet(cacheKey()) || 'null'); if (c && c.leads) { S.d = c; render({ anim: 'fade' }); } } catch { /* кеш повреждён */ }
+  if (!S.d) renderSkeleton();
   load();
+  initGestures();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && Date.now() - S.loadedAt > 60000) load(true);
   });
