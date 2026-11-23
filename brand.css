@@ -246,3 +246,10 @@
     --faint: #6C7770;
   }
 }
+
+/* Тёмная тема: время пробного — тонированная плашка вместо сплошной лаймовой */
+@media (prefers-color-scheme: dark) and (max-width: 759px) {
+  :root[data-skin="brand"]:not([data-theme="light"]) .t-inline {
+    background: rgba(214, 232, 74, .12); color: var(--e-lime); box-shadow: inset 0 0 0 1px rgba(214, 232, 74, .22);
+  }
+}

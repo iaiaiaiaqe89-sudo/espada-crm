@@ -110,6 +110,7 @@ const ICONS = {
   table: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/>',
   user: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/>',
   chev: '<path d="M7 10l5 5 5-5"/>',
+  trash: '<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5L17.5 7M10.2 11v6M13.8 11v6"/>',
   alert: '<path d="M12 8.5v4.5"/><path d="M12 16.6v.1"/><path d="M10.3 3.9L2.6 17.5a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
 };
 /** Знак «Эспада»: шлем из синусоиды и оси Y (по брендбуку). Цвета задаются темой. */
@@ -199,6 +200,12 @@ function upsert(list, item, k) {
 }
 function merge(r) {
   if (!r || !S.d) return;
+  if (r.removed) {
+    const rm = r.removed;
+    if (rm.leads) S.d.leads = S.d.leads.filter((l) => !rm.leads.includes(l.id));
+    if (rm.tasks) S.d.tasks = S.d.tasks.filter((t) => !rm.tasks.includes(t.id));
+    if (rm.trials) S.d.trials = S.d.trials.filter((t) => !rm.trials.includes(t.row));
+  }
   (r.leads || []).forEach((l) => upsert(S.d.leads, l, 'id'));
   (r.tasks || []).forEach((t) => upsert(S.d.tasks, t, 'id'));
   (r.trials || []).forEach((t) => upsert(S.d.trials, t, 'row'));
@@ -686,7 +693,7 @@ function viewToday() {
     trials.length ? list('trials', trials, (x) => trialRow(x)) : `<div class="list">${emptyState('Сегодня пробных нет', 'trial')}</div>`);
   if (tomorrow.length) {
     const left2 = tomorrow.filter((x) => !x.reminded).length;
-    right += sec('sec-tomorrow', 'Пробные завтра — напомнить накануне', `${tomorrow.length - left2}/${tomorrow.length} напомнили`,
+    right += sec('sec-tomorrow', 'Пробные завтра', `${tomorrow.length - left2}/${tomorrow.length} напомнили`,
       list('tomorrow', tomorrow, (x) => trialRow(x, 'eve|')));
   }
   if (noRes.length) right += sec('sec-nores', 'Заполните итог пробного', noRes.length, list('nores', noRes, noResRow));
@@ -731,7 +738,8 @@ function trialRow(x, prefix = '') {
   if (typeof prefix !== 'string') prefix = ''; // защита от map(trialRow): там второй аргумент — номер строки
   const lead = leadByPhone(x.phone);
   const key = prefix + trialKey(x);
-  return `<div class="row ${x.reminded ? 'done' : ''}">
+  return `<div class="row has-menu ${x.reminded ? 'done' : ''}">
+    <button class="row-menu" data-act="trialMenu" data-row="${x.row}" aria-label="Ещё">${ic('more', 2.4)}</button>
     <div class="time-col">${esc(x.time)}</div>
     <div class="main">
       <div class="title"><span class="t-inline">${esc(x.time)}</span>${lead ? `<a data-act="lead" data-id="${esc(lead.id)}">${x.name ? esc(x.name) : NONAME}</a>` : x.name ? esc(x.name) : NONAME}
@@ -746,7 +754,8 @@ function trialRow(x, prefix = '') {
     </div></div>`;
 }
 function noResRow(x) {
-  return `<div class="row stack">
+  return `<div class="row stack has-menu">
+    <button class="row-menu" data-act="trialMenu" data-row="${x.row}" aria-label="Ещё">${ic('more', 2.4)}</button>
     <div class="main">
       <div class="title">${x.name ? esc(x.name) : NONAME} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
       <div class="meta">${esc(dayLabel(x.date))}, ${esc(x.time)} · ${esc(x.teacher)}${x.phone ? ' · ' + esc(prettyPhone(x.phone)) : ''}</div>
@@ -1136,6 +1145,7 @@ function leadSheet(id) {
         ${!l.trialResult && l.trialDate <= t && tr ? resultBtns(tr, l.id) : ''}
         ${l.trialResult === 'Думает' || l.trialResult === 'Не пришёл' ? waBtn(l.phone, tpl('после пробного', vars), 'Написать') : ''}
         ${ACTIVE.includes(l.stage) ? `<button class="btn" data-act="book" data-id="${esc(l.id)}">${l.trialResult ? 'Новый пробный' : 'Перенести'}</button>` : ''}
+        ${tr ? `<button class="btn ghost danger" data-act="trialDel" data-row="${tr.row}">${ic('trash', 2)}Удалить</button>` : ''}
       </div></div></div></div></section>`;
   }
   const log = (l.log || '').split('\n').filter(Boolean).reverse()
@@ -1176,7 +1186,8 @@ function leadSheet(id) {
     <section class="section"><div class="section-h"><h2>Заметка</h2></div>
       <textarea class="input" id="note" rows="2" placeholder="Например: мама просит группу после 17:00"></textarea>
       <div style="margin-top:8px"><button class="btn primary" data-act="addNote" data-id="${esc(l.id)}">Добавить заметку</button></div></section>
-    <section class="section"><div class="section-h"><h2>История</h2></div><div class="list"><div class="log">${log || 'Пока пусто'}</div></div></section>`;
+    <section class="section"><div class="section-h"><h2>История</h2></div><div class="list"><div class="log">${log || 'Пока пусто'}</div></div></section>
+    <section class="section del-zone"><button class="btn danger del-btn" data-act="deleteLead" data-id="${esc(l.id)}">${ic('trash', 2)}Удалить лида</button></section>`;
 }
 
 /* ---------- Новый лид / изменение ---------- */
@@ -1513,6 +1524,65 @@ function openPayment(p) {
     .catch((e) => { sh.data.err = e.message; sh.render(); });
 }
 
+/* ---------- Подтверждение и удаление ---------- */
+
+/** Окно «Точно удалить?». checkbox: { label, checked } — дополнительная галочка, её значение придёт в onOk. */
+function confirmSheet({ title, text, ok, onOk, checkbox }) {
+  openSheet(() => sheetHead(esc(title)) + `
+    <p class="confirm-text">${text}</p>
+    ${checkbox ? `<label class="check-row"><input type="checkbox" id="cf-cb" ${checkbox.checked ? 'checked' : ''}><span>${checkbox.label}</span></label>` : ''}
+    <div class="sheet-foot btn-row">
+      <button class="btn lg" data-act="close">Отмена</button>
+      <button class="btn lg danger-solid" id="cf-ok">${esc(ok)}</button>
+    </div>`, {
+    small: true,
+    after: (sh) => {
+      $('#cf-ok', sh.panel).onclick = () => {
+        const v = checkbox ? $('#cf-cb', sh.panel).checked : false;
+        sh.close();
+        onOk(v);
+      };
+    },
+  });
+}
+
+function askDeleteTrial(tr) {
+  if (!tr) return;
+  const when = `${dayLabel(tr.date)}, ${tr.time}`;
+  let text = `${esc(when)} · ${tr.name ? esc(tr.name) : 'без имени'} · ${esc(tr.teacher)}.<br>Строка в таблице «Пробные» очистится, пробный пропадёт из расписания преподавателя.`;
+  if (tr.result) text += `<br>Итог «${esc(tr.result)}» удалится вместе с ним${tr.result === 'Записался' ? ' — и 200 сом за запись в «Зарплатах»' : ''}.`;
+  confirmSheet({
+    title: 'Удалить пробный?', text, ok: 'Удалить пробный',
+    onOk: () => run('deleteTrial', { row: tr.row, phone: tr.phone, date: tr.date }, () => {
+      S.d.trials = S.d.trials.filter((x) => x.row !== tr.row);
+    }).then(() => toast('Пробный удалён')).catch(() => {}),
+  });
+}
+
+function askDeleteLead(l) {
+  if (!l) return;
+  const tasks = S.d.tasks.filter((t) => t.leadId === l.id && !t.done && !isJunk(t)).length;
+  const since = addDays((l.created || nowS()).slice(0, 10), -14);
+  const p = normPhone(l.phone);
+  const trials = p.length >= 11 ? S.d.trials.filter((t) => normPhone(t.phone) === p && t.date >= since) : [];
+  const text = `${esc(leadLabel(l))}${l.phone ? ' · ' + esc(prettyPhone(l.phone)) : ''}.<br>Удалятся карточка${tasks ? `, история и ${tasks} ${plural(tasks, ['задача', 'задачи', 'задач'])}` : ' и история'}. Вернуть будет нельзя.`;
+  confirmSheet({
+    title: 'Удалить лида?', text, ok: 'Удалить лида',
+    checkbox: trials.length ? {
+      label: `Удалить и ${plural(trials.length, ['его пробный', 'его пробные', 'его пробные'])} из таблицы «Пробные»: ${trials.map((t) => `${esc(dayLabel(t.date))} ${esc(t.time)}`).join(', ')}`,
+      checked: false,
+    } : null,
+    onOk: (withTrials) => {
+      stack.slice().forEach((sh) => sh.close());
+      run('deleteLead', { id: l.id, withTrials }, () => {
+        S.d.leads = S.d.leads.filter((x) => x.id !== l.id);
+        S.d.tasks = S.d.tasks.filter((t) => t.leadId !== l.id);
+        if (withTrials) S.d.trials = S.d.trials.filter((t) => !trials.includes(t));
+      }).then(() => toast('Лид удалён')).catch(() => {});
+    },
+  });
+}
+
 /* ---------- Отказ ---------- */
 
 function openLost(id) {
@@ -1555,6 +1625,7 @@ function openTask(taskId, leadId) {
       <div class="chips" style="margin-bottom:8px">${presets.map(([lb, v]) => `<button type="button" class="chip-btn" data-due="${v}">${lb}</button>`).join('')}</div>
       <input class="input" id="f-due" type="datetime-local" value="${esc(defDue)}"></div>
     <div class="field"><span class="lbl">Кто делает</span><div class="seg">${radios('owner', S.d.users, t ? t.owner || me() : (lead && lead.owner) || me())}</div></div>
+    ${t ? `<div class="field"><button type="button" class="link-btn danger" id="delTask">${ic('trash', 2)}Удалить задачу</button></div>` : ''}
     <div class="sheet-foot btn-row">
       ${t && !t.done ? '<button class="btn lg ok" id="doneBtn" style="flex:0 0 auto;width:auto;padding:0 18px">Выполнено</button>' : ''}
       <button class="btn primary lg" id="saveTask">${t ? 'Сохранить' : 'Создать задачу'}</button>
@@ -1565,6 +1636,14 @@ function openTask(taskId, leadId) {
       $$('[data-due]', p).forEach((b) => { b.onclick = () => { $('#f-due', p).value = b.dataset.due; }; });
       if (!t) setTimeout(() => $('#f-title', p).focus(), 300);
       if ($('#doneBtn', p)) $('#doneBtn', p).onclick = () => { sh.close(); setDone(t.id, true); };
+      if ($('#delTask', p)) $('#delTask', p).onclick = () => confirmSheet({
+        title: 'Удалить задачу?', text: esc(t.title), ok: 'Удалить',
+        onOk: () => {
+          sh.close();
+          run('deleteTask', { id: t.id }, () => { S.d.tasks = S.d.tasks.filter((x) => x.id !== t.id); })
+            .then(() => toast('Задача удалена')).catch(() => {});
+        },
+      });
       $('#saveTask', p).onclick = async () => {
         const title = $('#f-title', p).value.trim();
         if (!title) return toast('Напишите, что сделать', { err: true });
@@ -1645,6 +1724,17 @@ const ACT = {
   },
   book(el) { openBooking(el.dataset.id); },
   enroll(el) { openEnroll({ leadId: el.dataset.lead }); },
+  trialMenu(el) {
+    const tr = S.d.trials.find((x) => x.row === Number(el.dataset.row));
+    if (!tr) return;
+    const lead = leadByPhone(tr.phone);
+    const items = [];
+    if (lead) items.push({ label: 'Открыть карточку лида', onPick: () => openLead(lead.id) });
+    items.push({ label: 'Удалить пробный', cls: 'danger', onPick: () => askDeleteTrial(tr) });
+    pick(esc(`Пробный ${dayLabel(tr.date)}, ${tr.time} · ${tr.name || 'без имени'}`), items);
+  },
+  trialDel(el) { askDeleteTrial(S.d.trials.find((x) => x.row === Number(el.dataset.row))); },
+  deleteLead(el) { askDeleteLead(leadById(el.dataset.id)); },
   pay(el) { const p = S.d.payments.find((x) => x.key === el.dataset.key); if (p) openPayment(p); },
   call(el) { const u = telUrl(el.dataset.phone); if (u) location.href = u; else toast('Нет телефона', { err: true }); },
   open(el) { if (el.dataset.url) window.open(el.dataset.url, '_blank'); },

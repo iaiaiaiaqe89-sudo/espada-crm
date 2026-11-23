@@ -143,9 +143,12 @@ const Demo = (() => {
       const out = { trials: [] };
       const old = db.trials.find((t) => t.date === l.trialDate && t.time === l.trialTime && norm(t.phone) === norm(l.phone) && !t.result);
       if (old) { old.result = 'Перенос'; out.trials.push(old); }
-      const tr = { row: Math.max(2, ...db.trials.map((t) => t.row)) + 1, date: r.date, time: r.time, teacher: r.teacher, name: l.name, grade: l.grade,
-        phone: l.phone, format: r.format, result: '', who: 'Алтынай', comment: r.comment || '' };
-      db.trials.push(tr); out.trials.push(tr);
+      const same = db.trials.find((t) => norm(t.phone) === norm(l.phone) && t.date === r.date && t.time === r.time && t.result !== 'Отказ');
+      const tr = same || { row: Math.max(2, ...db.trials.map((t) => t.row)) + 1 };
+      Object.assign(tr, { date: r.date, time: r.time, teacher: r.teacher, name: l.name, grade: l.grade,
+        phone: l.phone, format: r.format, result: '', who: 'Алтынай', comment: r.comment || '' });
+      if (!same) db.trials.push(tr);
+      out.trials.push(tr);
       Object.assign(l, { trialDate: r.date, trialTime: r.time, teacher: r.teacher, trialResult: '', format: r.format, stage: 'Пробный' });
       log(l, `записан(а) на пробный ${ruD(r.date)} ${r.time}, ${r.teacher}`);
       db.tasks.forEach((t) => { if (t.leadId === l.id && !t.done && /пробн/i.test(t.title) && /назнач/i.test(t.title)) { t.done = true; t.doneAt = dtS(new Date()); } });
@@ -247,6 +250,34 @@ const Demo = (() => {
       const done = db.tasks.filter((t) => t.key === r.key);
       done.forEach((t) => { t.key = 'x|' + t.key; t.title = '(отменено) ' + t.title; });
       return { tasks: done };
+    },
+  });
+
+  Object.assign(A, {
+    deleteTrial: (r) => {
+      const t = db.trials.find((x) => x.row === r.row);
+      if (!t) throw new Error('Пробный не найден');
+      db.trials = db.trials.filter((x) => x !== t);
+      const leads = db.leads.filter((l) => norm(l.phone) === norm(t.phone) && l.trialDate === t.date);
+      leads.forEach((l) => {
+        Object.assign(l, { trialDate: '', trialTime: '', teacher: '', trialResult: '' });
+        if (l.stage === 'Пробный' || l.stage === 'После пробного') l.stage = 'В диалоге';
+        log(l, `пробный удалён (${ruD(t.date)} ${t.time})`);
+      });
+      return { leads, removed: { trials: [t.row] } };
+    },
+    deleteLead: (r) => {
+      const l = find(r.id);
+      const tasks = db.tasks.filter((t) => t.leadId === l.id).map((t) => t.id);
+      db.tasks = db.tasks.filter((t) => t.leadId !== l.id);
+      const trials = r.withTrials ? db.trials.filter((t) => norm(t.phone) === norm(l.phone)).map((t) => t.row) : [];
+      db.trials = db.trials.filter((t) => !trials.includes(t.row));
+      db.leads = db.leads.filter((x) => x !== l);
+      return { removed: { leads: [l.id], tasks, trials } };
+    },
+    deleteTask: (r) => {
+      db.tasks = db.tasks.filter((t) => t.id !== r.id);
+      return { removed: { tasks: [r.id] } };
     },
   });
 
