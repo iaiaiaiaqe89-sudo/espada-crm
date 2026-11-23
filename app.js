@@ -65,6 +65,8 @@ function prettyPhone(p) {
   }
   return String(p || '').replace(/[\u200e\u200f\u202a-\u202e]/g, '').trim();
 }
+/** Класс для показа: «9» → «9 кл», «7кл» и «1 курс» — как есть. */
+const gr = (g) => { g = String(g || '').trim(); return !g ? '' : /^\d+$/.test(g) ? g + ' кл' : g; };
 const waUrl = (p, text) => {
   const d = normPhone(p);
   return d.length >= 11 ? `https://wa.me/${d}${text ? '?text=' + encodeURIComponent(text) : ''}` : '';
@@ -276,16 +278,27 @@ function render() {
   const overdue = openTasks().filter((x) => myTask(x) && x.due && x.due < nowS()).length;
   const todayCount = overdue + S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me())).length;
   const scroll = window.scrollY;
+  const badges = { today: todayCount, tasks: overdue };
   app.innerHTML = `
-    ${CFG.demo ? '<div class="demo-bar">Демо-режим: данные ненастоящие и хранятся только на этом устройстве</div>' : ''}
-    <header class="topbar">
-      <div style="flex:1;min-width:0">
-        <h1>${titles[view]}</h1>
-        <div class="sub">${view === 'today' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : esc(me())}</div>
-      </div>
-      <button class="icon-btn ${S.busy ? 'spin' : ''}" id="busy" data-act="refresh" aria-label="Обновить">${ic('refresh')}</button>
-    </header>
-    <main id="view">${views[view]()}</main>
+    <aside class="sidebar">
+      <div class="brand"><span class="mark">Э</span><span>Эспада CRM</span></div>
+      <button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>
+      <nav class="side-nav">${['today', 'board', 'tasks', 'more'].map((v) => `
+        <button class="nav-item ${view === v ? 'on' : ''}" data-act="tab" data-v="${v}">${ic(v)}<span>${titles[v]}</span>
+          ${badges[v] ? `<span class="badge">${badges[v]}</span>` : ''}</button>`).join('')}</nav>
+      <div class="side-foot">${ic('user', 2)}<span>${esc(me())}</span>${isMain() ? '<span class="pill accent">главный</span>' : ''}</div>
+    </aside>
+    <div class="app-body view-${view}">
+      ${CFG.demo ? '<div class="demo-bar">Демо-режим: данные ненастоящие и хранятся только на этом устройстве</div>' : ''}
+      <header class="topbar">
+        <div style="flex:1;min-width:0">
+          <h1>${titles[view]}</h1>
+          <div class="sub">${view === 'today' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : esc(me())}</div>
+        </div>
+        <button class="icon-btn ${S.busy ? 'spin' : ''}" id="busy" data-act="refresh" aria-label="Обновить" title="Обновить">${ic('refresh')}</button>
+      </header>
+      <main id="view">${views[view]()}</main>
+    </div>
     ${view === 'more' ? '' : `<button class="fab" data-act="newLead" aria-label="Новый лид">${ic('plus', 2.4)}</button>`}
     <nav class="tabbar">
       ${tabBtn('today', 'Сегодня', todayCount)}${tabBtn('board', 'Лиды')}${tabBtn('tasks', 'Задачи', overdue)}${tabBtn('more', 'Ещё')}
@@ -342,7 +355,7 @@ function viewToday() {
   const sec = (title, count, body, extra = '') =>
     `<section class="section"><div class="section-h"><h2>${title}</h2>${extra}${count != null ? `<span class="count">${count}</span>` : ''}</div>${body}</section>`;
 
-  let left = '', right = '';
+  let left = '', right = '', pay = '';
   if (fresh.length) left += sec('Новые — ответить', fresh.length, `<div class="list">${fresh.map(freshRow).join('')}</div>`);
   if (overdue.length) left += sec('Просрочено', overdue.length, `<div class="list">${overdue.map(taskRow).join('')}</div>`);
   left += sec('Задачи на сегодня', todays.length || null,
@@ -357,17 +370,17 @@ function viewToday() {
   }
   if (noRes.length) right += sec('Заполните итог пробного', noRes.length, `<div class="list">${noRes.map(noResRow).join('')}</div>`);
   if (isMain() || pays.length) {
-    right += sec('Напомнить об оплате', pays.length || null,
+    pay += sec('Напомнить об оплате', pays.length || null,
       pays.length ? `<div class="list">${pays.map(payRow).join('')}</div>` : '<div class="list"><div class="empty">Всем напомнили 👍</div></div>');
   }
-  return stats + `<div class="today-grid"><div>${left}</div><div>${right}</div></div>`;
+  return stats + `<div class="today-grid"><div class="g1">${left}</div><div class="g2">${right}</div><div class="g3">${pay}</div></div>`;
 }
 
 function freshRow(l) {
   return `<div class="row">
     <div class="main">
       <div class="title tap" data-act="lead" data-id="${esc(l.id)}">${esc(l.name || prettyPhone(l.phone) || 'Без имени')}
-        ${l.grade ? `<span class="pill">${esc(l.grade)} кл</span>` : ''}</div>
+        ${l.grade ? `<span class="pill">${esc(gr(l.grade))}</span>` : ''}</div>
       <div class="meta">${[l.source, l.name ? prettyPhone(l.phone) : '', 'написал(а) ' + ago(l.created) + ' назад'].filter(Boolean).map(esc).join(' · ')}</div>
       <div class="actions">
         ${waBtn(l.phone, tpl('приветствие', {}), 'Ответить')}
@@ -400,7 +413,7 @@ function trialRow(x, prefix = '') {
     <div class="time-col">${esc(x.time)}</div>
     <div class="main">
       <div class="title">${lead ? `<a data-act="lead" data-id="${esc(lead.id)}">${esc(x.name || 'без имени')}</a>` : esc(x.name || 'без имени')}
-        ${x.grade ? `<span class="pill">${esc(x.grade)} кл</span>` : ''}</div>
+        ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
       <div class="meta">${[x.teacher, x.format, prettyPhone(x.phone)].filter(Boolean).map(esc).join(' · ')}</div>
       <div class="actions">
         ${x.reminded
@@ -411,12 +424,14 @@ function trialRow(x, prefix = '') {
     </div></div>`;
 }
 function noResRow(x) {
-  return `<div class="row">
+  return `<div class="row stack">
     <div class="main">
-      <div class="title">${esc(x.name || 'без имени')} ${x.grade ? `<span class="pill">${esc(x.grade)} кл</span>` : ''}</div>
+      <div class="title">${esc(x.name || 'без имени')} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
       <div class="meta">${esc(dayLabel(x.date))}, ${esc(x.time)} · ${esc(x.teacher)}${x.phone ? ' · ' + esc(prettyPhone(x.phone)) : ''}</div>
-      ${waUrl(x.phone) ? `<div class="actions">${waBtn(x.phone, '', 'Написать')}${telBtn(x.phone)}</div>` : ''}
-      <div class="actions">${resultBtns(x)}</div>
+      <div class="acts">
+        ${waUrl(x.phone) ? `<div class="actions">${waBtn(x.phone, '', 'Написать')}${telBtn(x.phone)}</div>` : ''}
+        <div class="actions">${resultBtns(x)}</div>
+      </div>
     </div></div>`;
 }
 function resultBtns(x, leadId = '') {
@@ -430,13 +445,13 @@ function payRow(p) {
     <div class="main">
       <div class="title">${esc(p.name)} <span class="pill ${debt ? 'red' : 'amber'}">${esc(p.status)}${debt && p.debt ? ' ' + esc(p.debt) : ''}</span></div>
       <div class="meta">${[p.teacher, p.nextDate ? 'оплата ' + ruDate(p.nextDate) : '', prettyPhone(p.phone)].filter(Boolean).map(esc).join(' · ')}</div>
-      <div class="actions">
+      <div class="acts"><div class="actions">
         ${p.phone ? waBtn(p.phone, text, 'Напомнить') + telBtn(p.phone) : '<span class="pill">нет телефона в базе</span>'}
       </div>
       <div class="actions">
         <button class="btn ok" data-act="dismiss" data-key="${esc(p.key)}" data-title="${esc('Напомнили об оплате: ' + p.name + ' (' + p.teacher + ')')}">${ic('check', 2.6)}Напомнили</button>
         <button class="btn primary" data-act="pay" data-key="${esc(p.key)}">Оплатил</button>
-      </div>
+      </div></div>
     </div></div>`;
 }
 function waBtn(phone, text, label = 'WhatsApp') {
@@ -447,7 +462,7 @@ function telBtn(phone) {
   const u = telUrl(phone);
   return u ? `<a class="btn" href="${esc(u)}" aria-label="Позвонить">${ic('phone', 2)}</a>` : '';
 }
-const leadLabel = (l) => (l.name || prettyPhone(l.phone) || 'Без имени') + (l.grade ? `, ${l.grade} кл` : '');
+const leadLabel = (l) => (l.name || prettyPhone(l.phone) || 'Без имени') + (l.grade ? `, ${gr(l.grade)}` : '');
 
 /* ============================== Канбан ============================== */
 
@@ -509,7 +524,7 @@ function leadCard(l, draggable) {
   }
   return `<div class="card ${STAGE_CLS[l.stage]}" data-act="lead" data-id="${esc(l.id)}" ${draggable ? 'draggable="true"' : ''}>
     <div class="top"><div class="name">${esc(l.name || prettyPhone(l.phone) || 'Без имени')}</div><div class="ago">${esc(ago(l.updated))}</div></div>
-    <div class="line">${[l.grade ? l.grade + ' кл' : '', l.format, l.source].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('<span>·</span>')}
+    <div class="line">${[gr(l.grade), l.format, l.source].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('<span>·</span>')}
       ${l.owner && l.owner !== me() ? `<span class="pill">${esc(l.owner)}</span>` : ''}</div>
     ${next}
   </div>`;
@@ -602,7 +617,7 @@ function viewMore() {
   lost.forEach((l) => { const k = l.lostReason || 'Не указана'; reasons[k] = (reasons[k] || 0) + 1; });
   const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '—');
 
-  return `
+  return `<div class="more-grid"><div>
   <section class="section"><div class="list">
     <div class="row"><div class="check on" style="background:var(--accent);border-color:var(--accent)">${ic('user', 2)}</div>
       <div class="main"><div class="title">${esc(d.me)}</div><div class="meta">${isMain() ? 'Главный менеджер: общие напоминания приходят вам' : 'Менеджер'}</div></div></div>
@@ -618,6 +633,7 @@ function viewMore() {
         : '<div class="title">Бот ещё не настроен</div><div class="meta">Администратору: добавьте TG_TOKEN и запустите setup() — см. README.</div>'}
   </div></div></div></section>
 
+  </div><div>
   <section class="section"><div class="section-h"><h2>Последние 30 дней</h2></div><div class="list">
     <div class="funnel">
       <div><b>${recent.length}</b><span>новых лидов</span></div>
@@ -642,7 +658,7 @@ function viewMore() {
     <button data-act="refresh">${ic('refresh')}<span>Обновить данные</span><small>${S.loadedAt ? 'обновлено ' + ago(dtStr(new Date(S.loadedAt))) + (ago(dtStr(new Date(S.loadedAt))) === 'только что' ? '' : ' назад') : ''}</small></button>
     ${CFG.demo ? `<button data-act="demoReset">${ic('refresh')}<span>Сбросить демо-данные</span></button>` : ''}
     <button data-act="logout" style="color:var(--red)">${ic('x')}<span>${CFG.demo ? 'Выйти из демо' : 'Выйти'}</span></button>
-  </div></section>`;
+  </div></section></div></div>`;
 }
 
 /* ============================== Листы (модальные окна) ============================== */
@@ -650,7 +666,7 @@ function viewMore() {
 const stack = [];
 function openSheet(build, opts = {}) {
   const wrap = document.createElement('div');
-  wrap.className = 'sheet-wrap';
+  wrap.className = 'sheet-wrap' + (opts.small ? ' small' : '');
   wrap.innerHTML = '<div class="sheet-backdrop"></div><div class="sheet" role="dialog" aria-modal="true"></div>';
   const panel = $('.sheet', wrap);
   const sh = {
@@ -693,6 +709,7 @@ const sheetHead = (title) => `<div class="sheet-h"><h3>${title}</h3><button clas
 function pick(title, items) {
   openSheet(() => sheetHead(title) + `<div class="menu">${items.map((it, i) => `<button data-i="${i}" class="${it.cls || ''} ${it.cur ? 'cur' : ''}">
       ${it.dot ? '<span class="dot"></span>' : ''}<span>${esc(it.label)}</span>${it.note ? `<small>${esc(it.note)}</small>` : ''}</button>`).join('')}</div>`, {
+    small: true,
     after: (sh) => $$('.menu button', sh.panel).forEach((b) => {
       b.onclick = () => { sh.close(); items[b.dataset.i].onPick(); };
     }),
@@ -730,7 +747,7 @@ function leadSheet(id) {
       <div class="nm">${esc(l.name || 'Без имени')}</div>
       <div class="info">
         <button class="pill stage-pill ${STAGE_CLS[l.stage]}" data-act="leadStage" data-id="${esc(l.id)}"><span class="dot"></span>${esc(l.stage)} ▾</button>
-        ${[l.grade ? l.grade + ' класс' : '', l.format, l.source].filter(Boolean).map(esc).join(' · ')}
+        ${[/^\d+$/.test(String(l.grade).trim()) ? l.grade + ' класс' : gr(l.grade), l.format, l.source].filter(Boolean).map(esc).join(' · ')}
       </div>
     </div>
     <div class="quick">
@@ -808,7 +825,7 @@ function openLeadForm(id) {
             if (normPhone(phone.value) !== n) return;
             const parts = [];
             r.leads.forEach((x) => parts.push(`Уже есть лид: <a data-act="lead" data-id="${esc(x.id)}">${esc(leadLabel(x))}</a> (${esc(x.stage)})`));
-            r.students.forEach((x) => parts.push(`Уже в Базе: ${esc(x.name)}${x.grade ? ', ' + esc(x.grade) + ' кл' : ''} — преподаватель ${esc(x.teacher)} (${esc(x.status || 'учится')})`));
+            r.students.forEach((x) => parts.push(`Уже в Базе: ${esc(x.name)}${x.grade ? ', ' + esc(gr(x.grade)) : ''} — преподаватель ${esc(x.teacher)} (${esc(x.status || 'учится')})`));
             r.trials.forEach((x) => parts.push(`Был пробный ${esc(x.date.split('-').reverse().slice(0, 2).join('.'))}, преподаватель ${esc(x.teacher)}${x.result ? ' — ' + esc(x.result) : ''}`));
             $('#dup', sh.panel).innerHTML = parts.length ? `<div class="warnbox">${parts.join('<br>')}</div>` : '';
           } catch { /* проверка необязательная */ }
@@ -873,7 +890,7 @@ function openBooking(id) {
     <div class="field"><span class="lbl">Преподаватель</span><div class="chips">${radios('teacher', S.d.teachers, st.teacher)}</div></div>
     <div class="field"><span class="lbl">День</span><div class="chips nowrap">${radios('date', days.map((d) => [d, dayLabel(d)]), st.date)}
       <label class="chip"><input type="date" id="f-date" min="${t}" style="position:absolute;inset:0;opacity:0;width:100%"><span>Другой…</span></label></div></div>
-    <div class="field"><span class="lbl">Время${l.grade ? ` <span style="font-weight:500">· ★ — в группе уже есть ${esc(l.grade)} класс</span>` : ''}</span><div id="slots"></div></div>
+    <div class="field"><span class="lbl">Время${l.grade ? ` <span style="font-weight:500">· ★ — в группе уже есть ${esc(gr(l.grade))}</span>` : ''}</span><div id="slots"></div></div>
     <div class="field"><span class="lbl">Формат</span><div class="seg">${radios('format', ['Офлайн', 'Онлайн'], st.format)}</div></div>
     <div class="field"><label for="f-tc">Комментарий для таблицы</label><input class="input" id="f-tc" placeholder="Необязательно"></div>
     <div class="sheet-foot"><button class="btn primary lg" id="bookBtn" disabled>Выберите время</button></div>`, {
@@ -899,12 +916,12 @@ function openBooking(id) {
         const r = S.slots[k].r;
         if (r.dayOff || !r.slots.some((s) => s.status !== 'off')) { box.innerHTML = '<div class="warnbox">В этот день преподаватель не работает</div>'; return; }
         const label = { free: 'свободно', group: 'группа', busy: 'занято', off: 'не работает' };
-        const g = String(l.grade || '').trim();
+        const g = (String(l.grade || '').match(/^\s*(\d+)\s*(кл)?\s*$/) || [])[1] || '';
         const hasGrade = (s) => !!g && [...String(s.who || '').matchAll(/(\d+) кл/g)].some((m) => m[1] === g);
         box.innerHTML = `<div class="slots">${r.slots.filter((s) => s.status !== 'off' || (s.time >= '14:00')).map((s) => `
           <button type="button" class="slot ${s.status} ${s.status === 'group' && hasGrade(s) ? 'match' : ''}" data-time="${s.time}" ${s.status === 'off' ? 'disabled' : ''}>
             <b>${s.time}</b><small>${s.status === 'group' || s.status === 'busy' ? esc(s.type || label[s.status]) + (s.who ? ': ' + esc(s.who.replace(/^(\d+) чел\.:.*/, '$1 чел.')) : '') : label[s.status]}</small>
-            ${s.status === 'group' && hasGrade(s) ? `<small class="mt">★ есть ${esc(g)} кл</small>` : ''}
+            ${s.status === 'group' && hasGrade(s) ? `<small class="mt">★ есть ${esc(gr(g))}</small>` : ''}
             ${s.trials.length ? `<small class="tr">пробный: ${esc(s.trials.join(', '))}</small>` : ''}
           </button>`).join('')}</div>`;
         $$('.slot', box).forEach((b) => { b.onclick = () => { $$('.slot.sel', box).forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); st.time = b.dataset.time; upd(); }; });
@@ -1103,6 +1120,7 @@ function openLost(id) {
     <div class="chips">${radios('reason', listSetting('Причины отказа'), '')}</div>
     <div class="field"><input class="input" id="f-reason" placeholder="Или напишите своими словами"></div>
     <div class="sheet-foot"><button class="btn primary lg" id="lostBtn">Перенести в «Отказ»</button></div>`, {
+    small: true,
     after: (sh) => {
       $('#lostBtn', sh.panel).onclick = () => {
         const r = ($('#f-reason', sh.panel).value.trim()) || ($('input[name=reason]:checked', sh.panel) || {}).value || '';
@@ -1260,7 +1278,16 @@ document.addEventListener('click', (e) => {
   fn(el, e);
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && stack.length) stack[stack.length - 1].close();
+  if (e.key === 'Escape' && stack.length) return stack[stack.length - 1].close();
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '') || (e.target && e.target.isContentEditable);
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || !S.d || stack.length) return;
+  const k = e.key.toLowerCase();
+  if (k === 'n' || k === 'т') { e.preventDefault(); openLeadForm(); }
+  if (e.key === '/') {
+    e.preventDefault();
+    if (S.view !== 'board') { S.view = 'board'; lsSet('espada-view', 'board'); render(); }
+    const q = $('#q'); if (q) q.focus();
+  }
 });
 
 /* ============================== Уведомления ============================== */
