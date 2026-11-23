@@ -69,7 +69,8 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
-  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.4 "Onest", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   overscroll-behavior-y: none;
@@ -401,7 +402,7 @@ textarea.input { height: auto; min-height: 76px; padding: 10px 12px; resize: ver
    Ноутбук и компьютер (от 1000px): боковое меню, плотнее, колонки
    ===================================================================== */
 .sidebar { display: none; }
-kbd { font: 600 11px/1 -apple-system, sans-serif; padding: 3px 5px; border-radius: 5px; background: rgba(255, 255, 255, .18); margin-left: auto; }
+kbd { font: 600 11px/1 inherit; padding: 3px 5px; border-radius: 5px; background: rgba(255, 255, 255, .18); margin-left: auto; }
 .acts { display: contents; }
 .more-grid > div { min-width: 0; }
 
