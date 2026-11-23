@@ -1,0 +1,231 @@
+/* =====================================================================
+   Фирменная версия «Эспада»: включается в «Ещё → Оформление».
+   Цвета, шрифт Gros Ventre, знак-шлем, волны и «волнистые блоки» —
+   по брендбуку. Всё здесь действует только при html[data-skin="brand"].
+   Шрифт Gros Ventre — Dimitri Antonov, Blue Curve Designstudio, CC BY 4.0.
+   ===================================================================== */
+
+@font-face { font-family: "Gros Ventre"; src: url("fonts/gros-ventre-100.ttf") format("truetype"); font-weight: 100; font-display: swap; }
+@font-face { font-family: "Gros Ventre"; src: url("fonts/gros-ventre-300.ttf") format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "Gros Ventre"; src: url("fonts/gros-ventre-400.ttf") format("truetype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Gros Ventre"; src: url("fonts/gros-ventre-600.ttf") format("truetype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Gros Ventre"; src: url("fonts/gros-ventre-700.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+
+/* Знак (шлем) показывается только в фирменной версии */
+.mk-logo { display: none; }
+.tb-logo { display: none; }
+.skin-credit { display: none; }
+
+/* ---------- Цвета: светлая тема ---------- */
+:root[data-skin="brand"] {
+  --e-lime: #D6E84A;
+  --e-green: #A4D65E;
+  --e-dark: #00200F;
+  --e-orange: #E57B3B;
+  --e-paper: #F5F7F5;
+  --e-mist: #DCE3DE;
+
+  --bg: var(--e-paper);
+  --card: #ffffff;
+  --card-2: #ECF0ED;
+  --text: var(--e-dark);
+  --muted: #4E6356;
+  --faint: #8A9A90;
+  --line: var(--e-mist);
+  --accent: var(--e-dark);
+  --accent-ink: var(--e-lime);
+  --accent-soft: #EEF5C4;
+  --green: #3F7A1F;
+  --green-soft: #E4F2D0;
+  --amber: #566500;
+  --amber-soft: #EEF5C4;
+  --red: #C25A1B;
+  --red-soft: #FBE6D9;
+  --wa: var(--e-green);
+  --wa-ink: var(--e-dark);
+  --shadow: none;
+  --radius: 20px;
+
+  --s-new: var(--e-orange);   --ci-new: var(--e-dark);
+  --s-talk: #5E9A2C;          --ci-talk: #ffffff;
+  --s-trial: #C3D53A;         --ci-trial: var(--e-dark);
+  --s-after: var(--e-green);  --ci-after: var(--e-dark);
+  --s-won: var(--e-dark);     --ci-won: var(--e-lime);
+  --s-lost: #9AA79E;          --ci-lost: var(--e-dark);
+
+  --logo-line: var(--e-dark);
+  --logo-fill: var(--e-lime);
+  --logo-shadow: #ABBE3F;
+  color-scheme: light;
+}
+
+/* ---------- Цвета: тёмная тема ---------- */
+@media (prefers-color-scheme: dark) {
+  :root[data-skin="brand"]:not([data-theme="light"]) {
+    --bg: #001509;
+    --card: #00200F;
+    --card-2: #0A2E18;
+    --text: #F5F7F5;
+    --muted: #A9B9AE;
+    --faint: #6E8577;
+    --line: #164029;
+    --accent: var(--e-lime);
+    --accent-ink: var(--e-dark);
+    --accent-soft: #263A10;
+    --green: var(--e-green);
+    --green-soft: #173A1D;
+    --amber: var(--e-lime);
+    --amber-soft: #2A3611;
+    --red: #F29A63;
+    --red-soft: #3B2213;
+    --s-talk: #7DBA4A;          --ci-talk: var(--e-dark);
+    --s-trial: var(--e-lime);
+    --s-won: var(--e-mist);     --ci-won: var(--e-dark);
+    --s-lost: #6E8577;          --ci-lost: #F5F7F5;
+    --logo-line: var(--e-lime);
+    --logo-fill: var(--e-dark);
+    --logo-shadow: #2E4A22;
+    color-scheme: dark;
+  }
+}
+
+/* ---------- Шрифт ---------- */
+:root[data-skin="brand"] body {
+  font-family: "Gros Ventre", "Onest", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  letter-spacing: .005em;
+}
+:root[data-skin="brand"] .topbar h1 { font-weight: 700; font-size: 27px; letter-spacing: -.01em; }
+:root[data-skin="brand"] .topbar .sub { font-weight: 300; font-size: 13.5px; }
+
+/* ---------- Знак в шапке и меню ---------- */
+:root[data-skin="brand"] .mk-logo { display: block; }
+:root[data-skin="brand"] .mk-letter { display: none; }
+:root[data-skin="brand"] .tb-logo { display: block; width: 34px; height: 44px; flex: none; margin-right: 2px; }
+:root[data-skin="brand"] .tb-logo svg, :root[data-skin="brand"] .mk-logo svg { width: 100%; height: 100%; }
+.lg-o { fill: var(--logo-line, #00200F); }
+.lg-f { fill: var(--logo-fill, #D6E84A); }
+.lg-s { fill: var(--logo-shadow, #ABBE3F); }
+:root[data-skin="brand"] .skin-credit { display: block; }
+
+/* ---------- Заголовки разделов: маленькая волна ---------- */
+:root[data-skin="brand"] .section-h h2 {
+  text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+:root[data-skin="brand"] .section-h h2::before {
+  content: ""; width: 22px; height: 9px; flex: none; background: var(--e-orange);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 10'%3E%3Cpath d='M1.5 6.5C5 1.5 8.5 1.5 12 5s7 4.5 10.5-.5' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 10'%3E%3Cpath d='M1.5 6.5C5 1.5 8.5 1.5 12 5s7 4.5 10.5-.5' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+:root[data-skin="brand"] .section-h .count { font-weight: 300; font-size: 13px; }
+
+/* ---------- Плитки «Сегодня»: тёмный блок с волнами и волнистыми плитками ---------- */
+:root[data-skin="brand"] .hello {
+  position: relative; background: var(--e-dark); border-radius: 24px; padding: 14px 12px 40px; gap: 8px; overflow: hidden;
+}
+:root[data-skin="brand"] .hello::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 30px; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 40' preserveAspectRatio='none'%3E%3Cpath fill='%23A4D65E' d='M0 20C50 6 100 6 150 20S250 34 300 20 350 6 400 20V40H0Z'/%3E%3Cpath fill='%23D6E84A' d='M0 30C50 17 100 17 150 30S250 43 300 30 350 17 400 30V40H0Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+}
+:root[data-skin="brand"] .stat {
+  position: relative; z-index: 1; background: var(--e-lime); color: var(--e-dark); border-radius: 0; box-shadow: none; padding: 12px 10px 11px;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100' preserveAspectRatio='none'%3E%3Cpath d='M14 0Q42.5 8 71 0Q100 8 129 0Q157.5 8 186 0Q200 0 200 14Q194 50 200 86Q200 100 186 100Q157.5 92 129 100Q100 92 71 100Q42.5 92 14 100Q0 100 0 86Q6 50 0 14Q0 0 14 0Z'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 100' preserveAspectRatio='none'%3E%3Cpath d='M14 0Q42.5 8 71 0Q100 8 129 0Q157.5 8 186 0Q200 0 200 14Q194 50 200 86Q200 100 186 100Q157.5 92 129 100Q100 92 71 100Q42.5 92 14 100Q0 100 0 86Q6 50 0 14Q0 0 14 0Z'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+:root[data-skin="brand"] .stat b { font-weight: 700; font-size: 24px; color: var(--e-dark); }
+:root[data-skin="brand"] .stat span { color: var(--e-dark); opacity: .75; font-weight: 400; font-size: 11.5px; }
+:root[data-skin="brand"] .stat.warn { background: var(--e-orange); }
+:root[data-skin="brand"] .stat.warn b { color: var(--e-dark); }
+
+/* ---------- Списки и карточки ---------- */
+:root[data-skin="brand"] .list { border: 1px solid var(--line); }
+:root[data-skin="brand"] .row .title { font-weight: 600; }
+:root[data-skin="brand"] .time-col { font-weight: 700; }
+:root[data-skin="brand"] .card { border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); }
+:root[data-skin="brand"] .empty { font-weight: 300; }
+
+/* ---------- Кнопки ---------- */
+:root[data-skin="brand"] .btn { border-radius: 12px; font-weight: 600; }
+:root[data-skin="brand"] .btn.wa { font-weight: 600; }
+:root[data-skin="brand"] .btn.lg { border-radius: 16px; font-weight: 700; }
+:root[data-skin="brand"] .check.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+:root[data-skin="brand"] .badge { background: var(--e-orange); color: var(--e-dark); }
+:root[data-skin="brand"] .pill { font-weight: 600; }
+
+/* ---------- Этапы ---------- */
+:root[data-skin="brand"] .s-new { --ci: var(--ci-new); } :root[data-skin="brand"] .s-talk { --ci: var(--ci-talk); }
+:root[data-skin="brand"] .s-trial { --ci: var(--ci-trial); } :root[data-skin="brand"] .s-after { --ci: var(--ci-after); }
+:root[data-skin="brand"] .s-won { --ci: var(--ci-won); } :root[data-skin="brand"] .s-lost { --ci: var(--ci-lost); }
+:root[data-skin="brand"] .stage-pill { background: color-mix(in srgb, var(--c) 28%, transparent); color: var(--text); }
+:root[data-skin="brand"] .stage-tab.on { background: var(--c); color: var(--ci); }
+:root[data-skin="brand"] .stage-tab.on .dot, :root[data-skin="brand"] .stage-tab.on .n { color: var(--ci); }
+
+/* ---------- Нижняя панель и «+» (телефон) ---------- */
+:root[data-skin="brand"] .tabbar { background: var(--e-dark); border-top: 0; }
+:root[data-skin="brand"] .tab { color: #8FA597; }
+:root[data-skin="brand"] .tab.on { color: var(--e-lime); }
+:root[data-skin="brand"] .fab { background: var(--e-lime); color: var(--e-dark); box-shadow: 0 6px 20px rgba(0, 32, 15, .35); border: 3px solid var(--e-dark); }
+
+/* ---------- Формы ---------- */
+:root[data-skin="brand"] .input { border-radius: 14px; }
+:root[data-skin="brand"] .input:focus { border-color: var(--e-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--e-lime) 55%, transparent); }
+:root[data-skin="brand"] .chip span, :root[data-skin="brand"] .chip-btn { font-weight: 600; }
+:root[data-skin="brand"] .slot { border-radius: 14px; }
+:root[data-skin="brand"] .slot.free { border-color: var(--e-green); }
+:root[data-skin="brand"] .slot.free small { color: var(--green); }
+:root[data-skin="brand"] .slot.match { border-color: var(--e-orange); background: color-mix(in srgb, var(--e-orange) 10%, var(--card)); }
+:root[data-skin="brand"] .slot .mt { color: var(--red); }
+:root[data-skin="brand"] .sheet-h h3 { font-weight: 700; }
+:root[data-skin="brand"] .lead-head .nm { font-weight: 700; }
+:root[data-skin="brand"] .quick button { border: 1px solid var(--line); border-radius: 18px; color: var(--text); }
+:root[data-skin="brand"] .quick button svg { color: var(--green); }
+:root[data-skin="brand"] .quick button.wa { background: var(--e-green); border-color: var(--e-green); color: var(--e-dark); }
+:root[data-skin="brand"] .quick button.wa svg { color: var(--e-dark); }
+
+/* ---------- Уведомления ---------- */
+:root[data-skin="brand"] .toast { background: var(--e-dark); color: var(--e-paper); border: 1px solid #1d4a2f; }
+:root[data-skin="brand"] .toast button { color: var(--e-lime); }
+:root[data-skin="brand"] .toast.err { background: var(--e-orange); color: var(--e-dark); border-color: var(--e-orange); }
+:root[data-skin="brand"] .toast.err button { color: var(--e-dark); }
+:root[data-skin="brand"] .demo-bar { background: var(--e-lime); color: var(--e-dark); }
+
+/* ---------- Вход: обложка как в брендбуке ---------- */
+:root[data-skin="brand"] .login { position: relative; }
+:root[data-skin="brand"] .login .logo { background: none; width: 84px; height: 108px; border-radius: 0; }
+:root[data-skin="brand"] .login h1 { font-weight: 700; font-size: 30px; }
+
+/* ---------- Статистика ---------- */
+:root[data-skin="brand"] .funnel b { font-weight: 700; }
+:root[data-skin="brand"] .funnel div:nth-child(3) b { color: var(--red); }
+
+/* ---------- Ноутбук ---------- */
+@media (min-width: 1000px) {
+  :root[data-skin="brand"] .sidebar { background: var(--e-dark); border-right: 0; color: var(--e-paper); }
+  :root[data-skin="brand"] .sidebar { --logo-line: var(--e-lime); --logo-fill: var(--e-dark); --logo-shadow: #2E4A22; }
+  :root[data-skin="brand"] .brand { font-weight: 700; font-size: 18px; gap: 11px; }
+  :root[data-skin="brand"] .brand .mark { background: none; width: 30px; height: 38px; border-radius: 0; }
+  :root[data-skin="brand"] .side-new { background: var(--e-lime); border-color: var(--e-lime); color: var(--e-dark); border-radius: 14px; }
+  :root[data-skin="brand"] .side-new kbd { background: rgba(0, 32, 15, .12); }
+  :root[data-skin="brand"] .nav-item { color: #9DB2A4; font-weight: 600; border-radius: 12px; }
+  :root[data-skin="brand"] .nav-item:hover { background: #0D3520; color: var(--e-paper); }
+  :root[data-skin="brand"] .nav-item.on { background: var(--e-lime); color: var(--e-dark); }
+  :root[data-skin="brand"] .side-foot { border-top-color: #1d4a2f; color: #9DB2A4; }
+  :root[data-skin="brand"] .side-foot .pill.accent { background: #1d4a2f; color: var(--e-lime); }
+  :root[data-skin="brand"] .sidebar::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 64px; height: 70px; pointer-events: none; opacity: .9;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 232 70' preserveAspectRatio='none'%3E%3Cpath fill='%230D3520' d='M0 30C38 14 77 14 116 30S193 46 232 30V70H0Z'/%3E%3Cpath fill='%23164A2B' d='M0 46C38 31 77 31 116 46S193 61 232 46V70H0Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+  }
+  :root[data-skin="brand"] .side-nav, :root[data-skin="brand"] .side-foot, :root[data-skin="brand"] .brand, :root[data-skin="brand"] .side-new { position: relative; z-index: 1; }
+  :root[data-skin="brand"] .tb-logo { display: none; }
+  :root[data-skin="brand"] .hello { grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 860px; padding: 14px 14px 40px; }
+  :root[data-skin="brand"] .stat { padding: 13px 16px 12px; }
+  :root[data-skin="brand"] .stat b { font-size: 26px; }
+  :root[data-skin="brand"] .stat span { font-size: 12.5px; }
+  :root[data-skin="brand"] .btn { border-radius: 10px; }
+  :root[data-skin="brand"] .col { border-radius: 20px; }
+}
+
+/* Широкий шрифт: подписи в карточке лида */
+:root[data-skin="brand"] .kv { grid-template-columns: 150px 1fr; }
+:root[data-skin="brand"] .kv .k { font-size: 14px; }

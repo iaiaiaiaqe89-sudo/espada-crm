@@ -97,6 +97,26 @@ const ICONS = {
   table: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/>',
   user: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/>',
 };
+/** Знак «Эспада»: шлем из синусоиды и оси Y (по брендбуку). Цвета задаются темой. */
+const LOGO = `<svg viewBox="0 0 100 128" aria-hidden="true">
+  <path class="lg-o" d="M0 50A50 50 0 0 1 100 50V108.6L50 128L0 108.6Z"/>
+  <path class="lg-f" d="M6 50A44 44 0 0 1 94 50V104.4L50 121.5L6 104.4Z"/>
+  <g><path class="lg-s" transform="translate(0 6)" d="M6 44.5C11 41 15 40 20 40C27 40 31 44.5 35 48.5C38 51.5 41 53.5 44 54L44 68C41 67.5 38 65.5 35 62.5C31 58.5 27 54 20 54C15 54 11 55 6 58.5Z"/><path class="lg-o" d="M6 44.5C11 41 15 40 20 40C27 40 31 44.5 35 48.5C38 51.5 41 53.5 44 54L44 68C41 67.5 38 65.5 35 62.5C31 58.5 27 54 20 54C15 54 11 55 6 58.5Z"/></g>
+  <g transform="translate(100 0) scale(-1 1)"><path class="lg-s" transform="translate(0 6)" d="M6 44.5C11 41 15 40 20 40C27 40 31 44.5 35 48.5C38 51.5 41 53.5 44 54L44 68C41 67.5 38 65.5 35 62.5C31 58.5 27 54 20 54C15 54 11 55 6 58.5Z"/><path class="lg-o" d="M6 44.5C11 41 15 40 20 40C27 40 31 44.5 35 48.5C38 51.5 41 53.5 44 54L44 68C41 67.5 38 65.5 35 62.5C31 58.5 27 54 20 54C15 54 11 55 6 58.5Z"/></g>
+  <rect class="lg-o" x="43.7" y="4" width="12.6" height="124"/>
+</svg>`;
+const mark = (letter = 'Э') => `<span class="mk-letter">${letter}</span><span class="mk-logo">${LOGO}</span>`;
+
+const SKINS = { brand: 'Фирменное «Эспада»', plain: 'Обычное' };
+function applySkin(skin) {
+  const s = skin === 'plain' ? 'plain' : 'brand'; // фирменное — по умолчанию
+  if (s === 'brand') document.documentElement.dataset.skin = 'brand'; else delete document.documentElement.dataset.skin;
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const color = s === 'brand' ? (dark ? '#001509' : '#F5F7F5') : (dark ? '#0e1014' : '#f4f5f9');
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', color));
+  return s;
+}
+
 const ic = (n, sw = 1.9) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
 
 /* ============================== Константы ============================== */
@@ -114,6 +134,7 @@ const CFG = (() => {
   const h = new URLSearchParams(location.hash.slice(1));
   let api = h.get('api'), key = h.get('k');
   if (h.has('demo')) lsSet('espada-demo', '1');
+  if (h.get('skin')) lsSet('espada-skin', h.get('skin') === 'brand' ? 'brand' : 'plain');
   if (api && key) {
     lsSet('espada-auth', JSON.stringify({ api, key }));
     lsSet('espada-demo', null);
@@ -281,7 +302,7 @@ function render() {
   const badges = { today: todayCount, tasks: overdue };
   app.innerHTML = `
     <aside class="sidebar">
-      <div class="brand"><span class="mark">Э</span><span>Эспада CRM</span></div>
+      <div class="brand"><span class="mark">${mark()}</span><span>Эспада CRM</span></div>
       <button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>
       <nav class="side-nav">${['today', 'board', 'tasks', 'more'].map((v) => `
         <button class="nav-item ${view === v ? 'on' : ''}" data-act="tab" data-v="${v}">${ic(v)}<span>${titles[v]}</span>
@@ -291,6 +312,7 @@ function render() {
     <div class="app-body view-${view}">
       ${CFG.demo ? '<div class="demo-bar">Демо-режим: данные ненастоящие и хранятся только на этом устройстве</div>' : ''}
       <header class="topbar">
+        <div class="tb-logo">${LOGO}</div>
         <div style="flex:1;min-width:0">
           <h1>${titles[view]}</h1>
           <div class="sub">${view === 'today' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : esc(me())}</div>
@@ -315,13 +337,13 @@ function updBusy() {
   if (b) b.classList.toggle('spin', S.busy > 0);
 }
 function renderFatal(msg) {
-  $('#app').innerHTML = `<div class="login"><div class="logo">Э</div><h1>Не удалось загрузить</h1><p>${esc(msg)}</p>
+  $('#app').innerHTML = `<div class="login"><div class="logo">${mark()}</div><h1>Не удалось загрузить</h1><p>${esc(msg)}</p>
     <button class="btn primary lg" data-act="reload">Попробовать снова</button>
     <p style="margin-top:18px"><button class="btn ghost" data-act="logout">Ввести другую ссылку</button></p></div>`;
 }
 function renderLogin() {
   $('#app').innerHTML = `<div class="login">
-    <div class="logo">Э</div>
+    <div class="logo">${mark()}</div>
     <h1>Эспада CRM</h1>
     <p>Откройте свою персональную ссылку — её присылает администратор. Или вставьте её сюда:</p>
     <input class="input" id="loginLink" placeholder="https://…#api=…&k=…" autocomplete="off" autocapitalize="off">
@@ -647,6 +669,12 @@ function viewMore() {
     ${Object.keys(reasons).length ? `<table class="table"><thead><tr><th>Причины отказа</th><th></th></tr></thead><tbody>
       ${Object.entries(reasons).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('')}</tbody></table>` : ''}
   </div></section>
+
+  <section class="section"><div class="section-h"><h2>Оформление</h2></div>
+    <div class="seg">${Object.entries(SKINS).map(([k, label]) => `<label class="chip"><input type="radio" name="skin" value="${k}"
+      ${(lsGet('espada-skin') || 'brand') === k ? 'checked' : ''} data-skin-pick><span>${label}</span></label>`).join('')}</div>
+    <p class="hint">Выбор сохраняется на этом устройстве.</p>
+    <p class="hint skin-credit">Шрифт Gros Ventre — Dimitri Antonov, Blue Curve Designstudio (CC BY 4.0).</p></section>
 
   <section class="section"><div class="section-h"><h2>Таблицы</h2></div><div class="menu">
     <button data-act="open" data-url="${esc(d.links ? d.links.base : '')}">${ic('table')}<span>База учеников</span></button>
@@ -1277,6 +1305,11 @@ document.addEventListener('click', (e) => {
   e.stopPropagation();
   fn(el, e);
 });
+document.addEventListener('change', (e) => {
+  if (!e.target.matches || !e.target.matches('[data-skin-pick]')) return;
+  lsSet('espada-skin', applySkin(e.target.value));
+});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applySkin(lsGet('espada-skin')));
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && stack.length) return stack[stack.length - 1].close();
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '') || (e.target && e.target.isContentEditable);
@@ -1304,9 +1337,10 @@ function toast(msg, o = {}) {
 /* ============================== Запуск ============================== */
 
 function boot() {
+  applySkin(lsGet('espada-skin'));
   if (!CFG.demo && !(CFG.api && CFG.key)) return renderLogin();
   try { const c = JSON.parse(lsGet(cacheKey()) || 'null'); if (c && c.leads) { S.d = c; render(); } } catch { /* кеш повреждён */ }
-  if (!S.d) $('#app').innerHTML = '<div class="login"><div class="logo">Э</div><p>Загружаю…</p></div>';
+  if (!S.d) $('#app').innerHTML = `<div class="login"><div class="logo">${mark()}</div><p>Загружаю…</p></div>`;
   load();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && Date.now() - S.loadedAt > 60000) load(true);

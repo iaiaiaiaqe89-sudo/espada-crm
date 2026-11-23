@@ -523,3 +523,7 @@ kbd { font: 600 11px/1 inherit; padding: 3px 5px; border-radius: 5px; background
 @media (min-width: 1480px) {
   .today-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "g1 g2 g3"; }
 }
+
+/* Значки в меню («Ещё → Таблицы», «Обновить», «Выйти») */
+.menu button svg { width: 20px; height: 20px; flex: none; color: var(--muted); }
+.menu button[style*="red"] svg { color: currentColor; }

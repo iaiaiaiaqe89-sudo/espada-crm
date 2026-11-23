@@ -7,8 +7,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Эспада">
-  <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0e1014" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F5F7F5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#001509" media="(prefers-color-scheme: dark)">
   <meta name="robots" content="noindex">
   <meta name="description" content="Лиды, пробные и задачи для менеджеров центра математики «Эспада»">
   <link rel="apple-touch-icon" href="icon-180.png">
@@ -17,14 +17,23 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400..800&display=swap">
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="stylesheet" href="brand.css?v=9">
+  <script>
+    /* Оформление применяем до отрисовки, чтобы не мигало */
+    try {
+      var m = location.hash.match(/skin=(brand|plain)/);
+      var s = m ? m[1] : localStorage.getItem('espada-skin');
+      if (s !== 'plain') document.documentElement.setAttribute('data-skin', 'brand'); /* фирменное — по умолчанию */
+    } catch (e) { /* без сохранённого выбора */ }
+  </script>
   <title>Эспада CRM</title>
 </head>
 <body>
   <div id="app"></div>
   <div id="sheets"></div>
   <div id="toast"></div>
-  <script src="demo.js?v=6"></script>
-  <script src="app.js?v=6"></script>
+  <script src="demo.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
