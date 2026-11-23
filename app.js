@@ -51,6 +51,8 @@ function ruDate(s) {
 }
 function normPhone(p) {
   let d = String(p || '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2); // 00996… → 996…
+  if (d.length === 13 && d.startsWith('0996')) d = d.slice(1); // 0996… → 996…
   if (d.length === 10 && d[0] === '0') d = '996' + d.slice(1);
   else if (d.length === 9) d = '996' + d;
   return d;
@@ -399,6 +401,7 @@ function noResRow(x) {
     <div class="main">
       <div class="title">${esc(x.name || 'без имени')} ${x.grade ? `<span class="pill">${esc(x.grade)} кл</span>` : ''}</div>
       <div class="meta">${esc(dayLabel(x.date))}, ${esc(x.time)} · ${esc(x.teacher)}${x.phone ? ' · ' + esc(prettyPhone(x.phone)) : ''}</div>
+      ${waUrl(x.phone) ? `<div class="actions">${waBtn(x.phone, '', 'Написать')}${telBtn(x.phone)}</div>` : ''}
       <div class="actions">${resultBtns(x)}</div>
     </div></div>`;
 }
