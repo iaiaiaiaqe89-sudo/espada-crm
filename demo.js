@@ -369,7 +369,7 @@ const Demo = (() => {
     const list = students(c);
     const lessons = list.reduce((n, s) => n + s.zpLessons, 0);
     const accrued = list.reduce((n, s) => n + s.zp, 0);
-    return { week: 'Эта неделя', from: ws(), scheme: 'За уроки', lessons, payments: 0, accrued, trials: 200, correction: 0, total: accrued + 200, comment: '',
+    return { week: 'Эта неделя', from: ws(), scheme: 'За уроки', lessons, payments: 0, accrued, trials: 200, correction: (c.corr || {}).amount || 0, total: accrued + 200 + ((c.corr || {}).amount || 0), comment: (c.corr || {}).comment || '',
       rates: [['Группа', '200'], ['Пара', '540'], ['Инд', '400'], ['% от оплат', '40%'], ['За запись с пробного', '200']],
       journal: [{ date: day(-((new Date().getDay() || 7))), week: addD(ws(), -7), sum: 5400, comment: '' }, { date: addD(ws(), -8), week: addD(ws(), -14), sum: 6200, comment: 'с заменой' }] };
   }
@@ -475,6 +475,13 @@ const Demo = (() => {
       if (r.type !== undefined) { c.types = c.types || {}; c.types[r.dow + '|' + r.time] = r.type; }
       else { c.hours = c.hours || {}; c.hours[r.dow] = { from: r.from === 'выходной' ? '' : r.from, to: r.from === 'выходной' ? '' : r.to, off: r.from === 'выходной' }; }
       return { grid: grid(c) };
+    },
+    tCorr: (r) => {
+      const c = cab(r.as);
+      const amount = Math.round(Number(r.amount) || 0);
+      if (amount && !String(r.comment || '').trim()) throw new Error('Напишите, за что корректировка');
+      c.corr = { amount, comment: String(r.comment || '').trim() };
+      return { zp: zp(c, r.as) };
     },
     tMsg: (r) => {
       addTask({ title: `От ${r.as}: ${r.text}`, leadName: r.student ? `${r.student} (${r.as})` : '', due: soon(), author: r.as + ' (преп.)' });

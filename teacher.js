@@ -245,9 +245,11 @@ function tViewZp() {
       <div class="k">Схема</div><div>${esc(z.scheme || '—')}</div>
       ${rates.map(([k, v]) => `<div class="k">${esc(k)}</div><div>${esc(v)}${/%/.test(v) ? '' : ' сом'}</div>`).join('')}
       <div class="k">Начислено за пробные</div><div>${money(z.trials)} сом</div>
-      ${z.correction ? `<div class="k">Корректировка</div><div>${z.correction > 0 ? '+' : ''}${money(z.correction)} сом</div>` : ''}
-      ${z.comment ? `<div class="k">Комментарий</div><div style="white-space:pre-wrap">${esc(z.comment)}</div>` : ''}
     </div>`);
+    body += tSec('Корректировка', null, `<div class="list"><button class="row t-hour" data-act="tCorr">
+      <div class="main"><div class="title">${z.correction ? `${z.correction > 0 ? '+' : '−'}${money(Math.abs(z.correction))} сом` : '<span class="noname">нет</span>'}</div>
+        <div class="meta t-corr-note">${z.comment ? esc(z.comment) : 'Замены, уроки заранее, оплата с опозданием — впишите сюда'}</div></div>
+      ${ic('chev', 2.4)}</button></div>`);
     const per = (S.d.students || []).filter((s) => s.zp > 0 || s.zpLessons > 0).sort((a, b) => b.zp - a.zp);
     body += tSec('По ученикам', per.length || null, `<div class="list">${per.length ? per.map((s) => `<div class="row">
       <div class="main"><div class="title">${esc(s.name)} ${s.grade ? `<span class="pill">${esc(gr(s.grade))}</span>` : ''}</div>
@@ -260,7 +262,7 @@ function tViewZp() {
       <div class="meta">${[x.week ? 'за неделю с ' + tLong(x.week) : '', x.comment].filter(Boolean).map(esc).join(' · ')}</div></div>
     <div class="zp-sum">${money(x.sum)} сом</div></div>`).join('') : emptyState('Выплат пока не записано', 'wallet')}</div>`);
   return `<div class="t-week">${esc(z.week || 'Эта неделя')}${weekText ? ': ' + esc(weekText) : ''}</div>` + body
-    + '<p class="hint">Считается само в «Базе учеников»: прошедшие уроки недели по дням занятий, без праздников и замороженных дней. Выплата — по воскресеньям, корректировку вносит менеджер.</p>';
+    + '<p class="hint">Считается само в «Базе учеников»: прошедшие уроки недели по дням занятий, без праздников и замороженных дней. Выплата — по воскресеньям. Корректировку можно поправить самим, менеджер получит сообщение.</p>';
 }
 
 function tViewMore() {
@@ -459,6 +461,43 @@ function tOpenPay(s) {
   });
 }
 
+/** Своя корректировка к зарплате за неделю (лист «Зарплаты», столбцы G и I). */
+function tOpenCorr() {
+  const z = S.d.zp || {};
+  const was = z.correction || 0;
+  openSheet(() => sheetHead('Корректировка') + `<p class="hint" style="margin-top:0">Прибавится к сумме «К выплате» или вычтется из неё. Сейчас к выплате ${money(z.total)} сом.</p>
+    <div class="field"><span class="lbl">Что сделать</span><div class="seg">${radios('sign', [['plus', 'Прибавить'], ['minus', 'Вычесть']], was < 0 ? 'minus' : 'plus')}</div></div>
+    <div class="field"><label for="tc-amount">Сумма, сом</label><input class="input" id="tc-amount" type="number" inputmode="numeric" min="0" placeholder="0" value="${was ? Math.abs(was) : ''}"></div>
+    <div class="field"><label for="tc-note">За что</label><textarea class="input" id="tc-note" rows="3" placeholder="Например: замена в среду, 2 урока">${esc(z.comment || '')}</textarea></div>
+    <p class="hint" id="tc-hint"></p>
+    <div class="sheet-foot"><button class="btn primary lg" id="tcBtn">Сохранить</button></div>`, {
+    small: true,
+    after: (sh) => {
+      const p = sh.panel;
+      const amount = $('#tc-amount', p);
+      const val = () => Math.round(Math.abs(Number(amount.value) || 0)) * ($('input[name=sign]:checked', p).value === 'minus' ? -1 : 1);
+      const hint = () => {
+        const v = val();
+        $('#tc-hint', p).textContent = `К выплате: ${money(z.total || 0)} → ${money((z.total || 0) - was + v)} сом.${v ? '' : ' Пустая сумма — корректировки не будет.'}`;
+      };
+      p.addEventListener('change', hint);
+      amount.addEventListener('input', hint);
+      hint();
+      $('#tcBtn', p).onclick = async () => {
+        const b = $('#tcBtn', p);
+        const v = val(), comment = $('#tc-note', p).value.trim();
+        if (v && !comment) return toast('Напишите, за что корректировка', { err: true });
+        b.disabled = true; b.textContent = 'Сохраняю…';
+        try {
+          await tRun('tCorr', { amount: v, comment: v ? comment : '', was });
+          sh.close();
+          toast(v ? 'Корректировка сохранена, менеджер получит сообщение' : 'Корректировка убрана');
+        } catch { b.disabled = false; b.textContent = 'Сохранить'; }
+      };
+    },
+  });
+}
+
 /** Заморозить ученика на выбранный день (из карточки ученика). */
 function tOpenFreezeDay(s) {
   const pat = (S.d.meta.patterns || {})[s.days] || [];
@@ -557,7 +596,7 @@ async function tRun(action, payload, optimistic) {
   try {
     const r = await call(action, { ...payload, as: S.as || undefined });
     (r.trials || []).forEach((t) => upsert(S.d.trials, t, 'row'));
-    ['students', 'freezes', 'grid'].forEach((k) => { if (r[k]) S.d[k] = r[k]; });
+    ['students', 'freezes', 'grid', 'zp'].forEach((k) => { if (r[k]) S.d[k] = r[k]; });
     if (!S.as) lsSet(cacheKey(), JSON.stringify(S.d));
     render(); rerenderSheets();
     return r;
@@ -697,6 +736,7 @@ const T_ACT = {
     openSheet(() => tStudentSheet(name, row), { live: true });
   },
   tNewStudent() { tOpenForm(null); },
+  tCorr() { tOpenCorr(); },
   tEdit(el) { const s = tFind(el); if (s) tOpenForm(s); },
   tPay(el) { const s = tFind(el); if (s) tOpenPay(s); },
   tFreezeDay(el) { const s = tFind(el); if (s) tOpenFreezeDay(s); },
