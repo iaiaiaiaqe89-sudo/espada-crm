@@ -172,6 +172,7 @@ async function call(action, payload = {}) {
   const j = await res.json();
   if (!j.ok) {
     if (j.error === 'AUTH') { lsSet('espada-auth', null); throw new Error('Ссылка недействительна. Откройте свою персональную ссылку ещё раз.'); }
+    if (/^Неизвестное действие/.test(j.error)) throw new Error('Сервер ещё старой версии: в Apps Script обновите код и выпустите новую версию развёртывания');
     throw new Error(j.error);
   }
   return j.data;
@@ -1085,7 +1086,6 @@ function dragToClose(sh) {
     p.style.transition = '';
     bd.style.transition = '';
     if (shut) {
-      buzz(6);
       bd.style.opacity = '';
       sh.close();
     } else {
