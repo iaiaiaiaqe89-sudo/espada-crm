@@ -74,6 +74,8 @@ const waUrl = (p, text) => {
 const telUrl = (p) => { const d = normPhone(p); return d.length >= 11 ? 'tel:+' + d : ''; };
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* приватный режим */ } };
+/** Номер версии берётся из ссылки на этот файл (app.js?v=19). */
+const APP_VERSION = ((document.currentScript && document.currentScript.src.match(/[?&]v=(\d+)/)) || [])[1] || '';
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const isWide = () => matchMedia('(min-width: 1000px)').matches;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -564,6 +566,21 @@ function renderSkeleton() {
     </div>`;
 }
 
+/** Вышла новая версия на сайте — предложить обновиться (телефон мог держать старую в памяти). */
+let updateOffered = false, updateCheckedAt = 0;
+async function checkUpdate() {
+  if (updateOffered || !APP_VERSION || Date.now() - updateCheckedAt < 5 * 60000) return;
+  updateCheckedAt = Date.now();
+  try {
+    const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+    const v = (html.match(/app\.js\?v=(\d+)/) || [])[1];
+    if (v && v !== APP_VERSION) {
+      updateOffered = true;
+      toast('Вышла новая версия приложения', { action: 'Обновить', onAction: () => location.reload() });
+    }
+  } catch { /* нет сети — проверим позже */ }
+}
+
 /** Полоса загрузки сверху и кружок «потяните, чтобы обновить». */
 function addChrome() {
   if (!$('#progress')) document.body.insertAdjacentHTML('beforeend', '<div id="progress" aria-hidden="true"></div>');
@@ -595,7 +612,6 @@ function initGestures() {
     const i = STAGES.indexOf(S.stage) + (dx < 0 ? 1 : -1);
     if (i < 0 || i >= STAGES.length) return;
     S.stage = STAGES[i];
-    buzz(6);
     redrawBoard(dx < 0 ? 'left' : 'right', true);
   }, { passive: true });
 
@@ -608,7 +624,6 @@ function initGestures() {
     ptr.style.opacity = String(Math.min(1, d / 34));
     icon.style.transform = `rotate(${d * 3.2}deg)`;
     const ready = d >= 64;
-    if (ready && !ptr.classList.contains('ready')) buzz(6);
     ptr.classList.toggle('ready', ready);
   };
   const hide = () => {
@@ -1003,6 +1018,7 @@ function viewMore() {
     <div class="seg">${Object.entries(SKINS).map(([k, label]) => `<label class="chip"><input type="radio" name="skin" value="${k}"
       ${(lsGet('espada-skin') || 'brand') === k ? 'checked' : ''} data-skin-pick><span>${label}</span></label>`).join('')}</div>
     <p class="hint">Выбор сохраняется на этом устройстве.</p>
+    ${APP_VERSION ? `<p class="hint">Версия приложения: ${esc(APP_VERSION)}</p>` : ''}
     <p class="hint skin-credit">Шрифт Gros Ventre — Dimitri Antonov, Blue Curve Designstudio (CC BY 4.0).</p></section>
 
   <section class="section"><div class="section-h"><h2>Таблицы</h2></div><div class="menu">
@@ -1888,6 +1904,7 @@ function boot() {
   if (!S.d) renderSkeleton();
   load();
   initGestures();
+  setTimeout(checkUpdate, 4000);
   if (document.fonts) {
     document.fonts.ready.then(relayoutIndicators);
     if (document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', relayoutIndicators);
@@ -1896,6 +1913,7 @@ function boot() {
   addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(relayoutIndicators, 150); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && Date.now() - S.loadedAt > 60000) load(true);
+    if (document.visibilityState === 'visible') checkUpdate();
   });
   setInterval(() => { if (document.visibilityState === 'visible') load(true); }, 5 * 60000);
   let wasWide = matchMedia('(min-width: 1000px)').matches;
