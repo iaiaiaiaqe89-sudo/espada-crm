@@ -113,6 +113,7 @@ const Demo = (() => {
       me: 'Алтынай', main: 'Алтынай', users: USERS, today: day(0), teachers: TEACHERS, settings: SETTINGS,
       stages: [], results: [], leads: db.leads, tasks: db.tasks, trials: db.trials, payments: db.payments,
       telegram: { bot: 'espada_demo_bot', linked: false, link: 'https://t.me/' },
+      teacherBot: TEACHERS.map((n, i) => ({ name: n, linked: i < 2, link: 'https://t.me/espada_demo_bot?start=t' + i })),
       links: { base: 'https://docs.google.com/spreadsheets/', sched: 'https://docs.google.com/spreadsheets/' },
     }),
     saveLead: (r) => {

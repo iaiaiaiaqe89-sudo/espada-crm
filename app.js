@@ -963,6 +963,20 @@ function viewTasks() {
 
 /* ============================== Ещё ============================== */
 
+/** Преподаватели в Telegram: кто подключён и кнопка отправить ссылку. */
+function teacherBotSection(d) {
+  const list = d.teacherBot || [];
+  if (!list.length) return '';
+  const on = list.filter((t) => t.linked).length;
+  return `<section class="section"><div class="section-h"><h2>Преподаватели в Telegram</h2><span class="count">${on} из ${list.length}</span></div>
+    <div class="list">${list.map((t) => `<div class="row tb-row">
+      <div class="tb-name"><div class="title">${esc(t.name)}</div>
+        <div class="meta">${t.linked ? '<span class="pill green">подключён</span>' : 'не подключён'}</div></div>
+      <button class="btn" data-act="teacherLink" data-name="${esc(t.name)}">${ic('send', 2)}${t.linked ? 'Ссылка' : 'Пригласить'}</button>
+    </div>`).join('')}</div>
+    <p class="hint">Утром бот присылает преподавателю пробные на день, а после занятия спрашивает итог кнопками. Ответ сразу попадает в «Пробные» и в карточку лида, а вам приходит уведомление.</p></section>`;
+}
+
 function viewMore() {
   const d = S.d;
   const tg = d.telegram || {};
@@ -998,6 +1012,7 @@ function viewMore() {
            <div class="actions"><a class="btn primary" href="${esc(tg.link)}" target="_blank" rel="noopener">${ic('send', 2)}Подключить Telegram</a></div>`
         : '<div class="title">Бот ещё не настроен</div><div class="meta">Администратору: добавьте TG_TOKEN и запустите setup() — см. README.</div>'}
   </div></div></div></section>
+  ${teacherBotSection(d)}
 
   </div><div>
   <section class="section"><div class="section-h"><h2>Последние 30 дней</h2></div><div class="list">
@@ -1754,6 +1769,20 @@ const ACT = {
   pay(el) { const p = S.d.payments.find((x) => x.key === el.dataset.key); if (p) openPayment(p); },
   call(el) { const u = telUrl(el.dataset.phone); if (u) location.href = u; else toast('Нет телефона', { err: true }); },
   open(el) { if (el.dataset.url) window.open(el.dataset.url, '_blank'); },
+  async teacherLink(el) {
+    const t = (S.d.teacherBot || []).find((x) => x.name === el.dataset.name);
+    if (!t) return;
+    const text = `Здравствуйте, ${t.name}! Это бот центра «Эспада»: утром он пришлёт ваши пробные на день, а после занятия спросит, как прошло, — ответить можно одной кнопкой. Откройте ссылку и нажмите «Старт»: ${t.link}`;
+    if (navigator.share) {
+      try { await navigator.share({ text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`Приглашение для ${t.name} скопировано — отправьте его в WhatsApp или Telegram`);
+    } catch {
+      window.prompt('Скопируйте приглашение:', text);
+    }
+  },
   leadStage(el) {
     const l = leadById(el.dataset.id);
     pick('Этап', STAGES.map((s) => ({ label: s, dot: true, cls: STAGE_CLS[s], cur: s === l.stage, onPick: () => changeStage(l, s) })));

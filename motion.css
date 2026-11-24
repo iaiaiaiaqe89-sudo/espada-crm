@@ -377,3 +377,9 @@ html, body { overflow-x: clip; }
 .check-row input { width: 18px; height: 18px; margin: 1px 0 0; flex: none; accent-color: var(--red); }
 .del-zone { margin-top: 26px; }
 .del-btn { width: 100%; height: 44px; background: transparent; border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
+
+/* Преподаватели в Telegram: имя, статус и кнопка в одну строку */
+.tb-row { display: flex; align-items: center; gap: 12px; }
+.tb-row .tb-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tb-row .tb-name .meta { margin: 0; }
+.tb-row > .btn { flex: none; }
