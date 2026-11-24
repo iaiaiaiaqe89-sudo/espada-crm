@@ -79,10 +79,12 @@ function tViewDay() {
     <button class="wk-nav prev" data-act="tWeek" data-v="-7" aria-label="Предыдущая неделя">${ic('chev', 2.4)}</button>
     <div class="wk-days">${week.map((d) => {
       const dd = parseD(d);
-      const n = tLessons(d).length + tTrialsOn(d).length;
+      const nl = tLessons(d).length, nt = tTrialsOn(d).length;
+      const n = nl + nt;
       const warn = S.d.trials.some((x) => x.date === d && !x.result && tStarted(x.date, x.time));
+      const sub = [nl ? `${nl} ${plural(nl, ['урок', 'урока', 'уроков'])}` : '', nt ? `${nt} пр.` : ''].filter(Boolean).join(' · ') || '—';
       return `<button class="wk-day ${d === day ? 'on' : ''} ${d === t ? 'today' : ''} ${dd.getDay() === 0 ? 'off' : ''}" data-act="tDay" data-v="${d}"
-        aria-label="${esc(tDayTitle(d))}"><span>${WD[dd.getDay()]}</span><b>${dd.getDate()}</b><i class="${warn ? 'warn' : n ? 'has' : ''}"></i></button>`;
+        aria-label="${esc(tDayTitle(d))}"><span>${WD[dd.getDay()]}</span><b>${dd.getDate()}</b><i class="${warn ? 'warn' : n ? 'has' : ''}"></i><small>${sub}</small></button>`;
     }).join('')}</div>
     <button class="wk-nav next" data-act="tWeek" data-v="7" aria-label="Следующая неделя">${ic('chev', 2.4)}</button>
   </div>
@@ -112,7 +114,10 @@ function tViewDay() {
   else body = `<div class="list">${emptyState(!dow ? 'Воскресенье — выходной' : 'В этот день занятий нет', 'today')}</div>`;
   const hint = items.length && tCanFreeze(day)
     ? '<p class="hint">❄ — заморозка ученика на этот день: дата оплаты сдвинется на урок, а урок не пойдёт в ЗП «за уроки». Время и статусы часов — кнопка с часами вверху.</p>' : '';
-  return strip + stats + `<div class="t-day">${tSec(esc(tDayTitle(day)), null, body, edit)}${hint}</div>`;
+  const side = dow && S.d.grid && !S.d.grid.missing
+    ? `<aside class="t-side desk-only">${tSec('Статус по часам', null, `<div class="list">${tHourRows(dow)}</div>`)}
+      <p class="hint">Нажмите на час, чтобы поменять статус. Он меняет постоянное расписание на все недели.</p></aside>` : '';
+  return strip + stats + `<div class="t-cols ${side ? '' : 'one'}"><div class="t-day">${tSec(esc(tDayTitle(day)), null, body, edit)}${hint}</div>${side}</div>`;
 }
 
 function tLessonCard(day, l) {
@@ -179,10 +184,10 @@ function tViewTrials() {
     ${tStat(pct, 'записались')}
   </div>`;
   const card = (x) => tTrialCard(x, { date: true });
-  return stats
+  return stats + `<div class="t-cols ${done.length ? '' : 'one'}"><div>`
     + (need.length ? tSec('Поставьте итог', need.length, need.map(card).join('')) : '')
     + tSec('Предстоящие', next.length || null, next.length ? next.map(card).join('') : `<div class="list">${emptyState('Новых пробных пока нет', 'trial')}</div>`)
-    + (done.length ? tSec('Прошедшие', done.length, done.slice(0, 20).map(card).join('')) : '')
+    + '</div>' + (done.length ? `<div>${tSec('Прошедшие', done.length, done.slice(0, 20).map(card).join(''))}</div>` : '') + '</div>'
     + '<p class="hint">Записывает на пробные менеджер. Утром бот в Telegram пришлёт пробные на день, а после занятия спросит итог.</p>';
 }
 
@@ -209,6 +214,7 @@ function tViewStudents() {
   const paid = live.filter((s) => s.payStatus === 'Оплачено').length;
   const renew = live.filter((s) => s.payStatus === 'Продлить' || s.payStatus === 'Закончился').length;
   const debt = live.reduce((n, s) => n + (s.debt > 0 ? s.debt : 0), 0);
+  const due = live.filter((s) => ['Закончился', 'Продлить', 'Долг'].includes(s.payStatus) || s.debt > 0);
   const stats = `<div class="hello">
     ${tStat(live.length, ['учится', 'учатся', 'учатся'])}
     ${tStat(paid, ['оплатил', 'оплатили', 'оплатили'])}
@@ -218,10 +224,12 @@ function tViewStudents() {
   const list = (items, empty) => `<div class="list">${items.length ? items.map(tStudentRow).join('') : emptyState(empty, 'user')}</div>`;
   return stats
     + `<div class="toolbar"><div style="flex:1"></div><button class="toggle" data-act="tNewStudent">+ Новый ученик</button></div>`
-    + tSec('Учатся', act.length, list(act, 'Пока никого — добавьте первого ученика'))
+    + `<div class="t-cols t-stud"><div>${tSec('Учатся', act.length, list(act, 'Пока никого — добавьте первого ученика'))}</div><div>`
+    + `<div class="desk-only">${tSec('Продлить и долги', due.length || null, list(due, 'Все оплатили'))}</div>`
     + (frozen.length ? tSec('Заморозка', frozen.length, list(frozen, '')) : '')
     + (gone.length ? `<section class="section"><button class="more-btn t-gone" data-act="tGone">${TS.gone ? 'Скрыть выбывших' : `Выбывшие · ${gone.length}`}${ic('chev', 2.4)}</button>
       ${TS.gone ? `<div style="margin-top:8px">${list(gone, '')}</div>` : ''}</section>` : '')
+    + '</div></div>'
     + '<p class="hint">Всё, что вы меняете здесь, сразу записывается в ваш лист «Базы учеников». Дата следующей оплаты, долг и статус оплаты считаются там сами. О новых учениках, сменах статуса и оплатах менеджер получает сообщение.</p>';
 }
 
@@ -241,7 +249,7 @@ function tViewZp() {
       ${tStat(money(z.accrued), 'начислено', false, 'sm')}
     </div>`;
     const rates = (z.rates || []).filter(([k]) => (perLesson ? ['Группа', 'Пара', 'Инд'].includes(k) : k === '% от оплат') || /пробн/i.test(k));
-    body += tSec('Как считается', null, `<div class="list kv">
+    body += '<div class="t-cols t-flip"><div>' + tSec('Как считается', null, `<div class="list kv">
       <div class="k">Схема</div><div>${esc(z.scheme || '—')}</div>
       ${rates.map(([k, v]) => `<div class="k">${esc(k)}</div><div>${esc(v)}${/%/.test(v) ? '' : ' сом'}</div>`).join('')}
       <div class="k">Начислено за пробные</div><div>${money(z.trials)} сом</div>
@@ -249,7 +257,7 @@ function tViewZp() {
     body += tSec('Корректировка', null, `<div class="list"><button class="row t-hour" data-act="tCorr">
       <div class="main"><div class="title">${z.correction ? `${z.correction > 0 ? '+' : '−'}${money(Math.abs(z.correction))} сом` : '<span class="noname">нет</span>'}</div>
         <div class="meta t-corr-note">${z.comment ? esc(z.comment) : 'Замены, уроки заранее, оплата с опозданием — впишите сюда'}</div></div>
-      ${ic('chev', 2.4)}</button></div>`);
+      ${ic('chev', 2.4)}</button></div>`) + '<!--pays--></div><div>';
     const per = (S.d.students || []).filter((s) => s.zp > 0 || s.zpLessons > 0).sort((a, b) => b.zp - a.zp);
     body += tSec('По ученикам', per.length || null, `<div class="list">${per.length ? per.map((s) => `<div class="row">
       <div class="main"><div class="title">${esc(s.name)} ${s.grade ? `<span class="pill">${esc(gr(s.grade))}</span>` : ''}</div>
@@ -257,10 +265,13 @@ function tViewZp() {
       <div class="zp-sum">${money(s.zp)} сом</div></div>`).join('') : emptyState(perLesson ? 'На этой неделе уроков ещё не было' : 'На этой неделе оплат ещё не было', 'wallet')}</div>`);
   }
   const j = z.journal || [];
-  body += tSec('Выплаты', j.length || null, `<div class="list">${j.length ? j.map((x) => `<div class="row">
+  const pays = tSec('Выплаты', j.length || null, `<div class="list">${j.length ? j.map((x) => `<div class="row">
     <div class="main"><div class="title">${x.date ? esc(tLong(x.date)) : '—'}</div>
       <div class="meta">${[x.week ? 'за неделю с ' + tLong(x.week) : '', x.comment].filter(Boolean).map(esc).join(' · ')}</div></div>
     <div class="zp-sum">${money(x.sum)} сом</div></div>`).join('') : emptyState('Выплат пока не записано', 'wallet')}</div>`);
+  // на компьютере выплаты стоят справа под корректировкой, на телефоне — в конце, как раньше
+  if (z.missing) body += pays;
+  else body = body.replace('<!--pays-->', () => `<div class="desk-only">${pays}</div>`) + `<div class="mob-only">${pays}</div></div></div>`;
   return `<div class="t-week">${esc(z.week || 'Эта неделя')}${weekText ? ': ' + esc(weekText) : ''}</div>` + body
     + '<p class="hint">Считается само в «Базе учеников»: прошедшие уроки недели по дням занятий, без праздников и замороженных дней. Выплата — по воскресеньям. Корректировку можно поправить самим, менеджер получит сообщение.</p>';
 }
@@ -522,12 +533,11 @@ function tOpenFreezeDay(s) {
 }
 
 /** Рабочие часы и статус каждого часа в один день недели. */
-function tGridSheet(dow) {
+function tHourRows(dow) {
   const g = S.d.grid || { hours: [], slots: [] };
-  const m = S.d.meta;
   const h = (g.hours || []).find((x) => x.dow === dow) || { from: '', to: '' };
   const from = h.off ? 'выходной' : h.from || '';
-  const rows = T_HOURS.map((t) => {
+  return T_HOURS.map((t) => {
     const sl = (g.slots || []).find((x) => x.dow === dow && x.time === t) || {};
     const outside = from === 'выходной' || (h.from && t < h.from) || (h.to && t >= h.to);
     return `<button class="row t-hour ${outside ? 'out' : ''}" data-act="tSlotPick" data-dow="${dow}" data-time="${t}">
@@ -536,6 +546,14 @@ function tGridSheet(dow) {
         ${sl.who ? `<div class="meta">${esc(sl.who)}</div>` : ''}</div>
       ${ic('chev', 2.2)}</button>`;
   }).join('');
+}
+
+function tGridSheet(dow) {
+  const g = S.d.grid || { hours: [], slots: [] };
+  const m = S.d.meta;
+  const h = (g.hours || []).find((x) => x.dow === dow) || { from: '', to: '' };
+  const from = h.off ? 'выходной' : h.from || '';
+  const rows = tHourRows(dow);
   return sheetHead(esc(WDF[dow])) + `
     <div class="field"><span class="lbl">Рабочие часы</span><div class="btn-row">
       <select class="input" id="tg-from" aria-label="С какого часа"><option value="">весь день</option>${m.from.map((x) => `<option ${x === from ? 'selected' : ''}>${x}</option>`).join('')}</select>

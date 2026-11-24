@@ -1,5 +1,5 @@
 /* =====================================================================
-   Кабинет преподавателя: неделя, занятия, посещаемость, пробные.
+   Кабинет преподавателя: неделя, занятия, заморозки, пробные, ученики, зарплата.
    Только цвета из общей темы, поэтому выглядит одинаково в обоих оформлениях и в тёмном режиме.
    ===================================================================== */
 
@@ -129,3 +129,32 @@
 .zp-hello .stat b, .stat.sm b { white-space: nowrap; }
 .stat.sm b { font-size: 19px; }
 :root[data-skin="brand"] .stat.sm b { font-size: 20px; }
+
+/* ---------- Компьютер: колонки вместо растянутого телефонного списка ---------- */
+.desk-only { display: none; }
+.wk-day small { display: none; }
+@media (min-width: 1000px) {
+  .wk { max-width: 860px; }
+  .wk-day { padding: 8px 0 9px; gap: 2px; }
+  .wk-day i.has { background: transparent; }
+  .wk-day small { display: block; font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+  .wk-day.on small { color: var(--accent-ink); opacity: .75; }
+  .wk-day.off small { visibility: hidden; }
+  .t-cols > * { max-width: 760px; min-width: 0; }
+  .t-cols .t-day { max-width: 760px; }
+}
+@media (min-width: 1200px) {
+  .t-cols { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 0 28px; align-items: start; }
+  .t-cols > *, .t-cols .t-day { max-width: none; }
+  .t-cols.one { grid-template-columns: minmax(0, 860px); }
+  .t-flip > :first-child { grid-column: 2; grid-row: 1; }
+  .t-flip > :last-child { grid-column: 1; grid-row: 1; }
+  .desk-only { display: block; }
+  .mob-only { display: none; }
+  .t-side .hint { margin-top: 8px; }
+}
+/* Ученик в широком списке: оплата справа */
+@container (min-width: 600px) {
+  .row:not(.stack) .main > .t-note { grid-column: 1 / -1; }
+  .row:not(.stack) .main > .t-pay { grid-column: 2; grid-row: 1 / span 2; justify-self: end; text-align: right; margin-top: 0 !important; }
+}
