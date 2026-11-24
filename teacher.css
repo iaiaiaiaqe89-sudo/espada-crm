@@ -1,0 +1,131 @@
+/* =====================================================================
+   Кабинет преподавателя: неделя, занятия, посещаемость, пробные.
+   Только цвета из общей темы, поэтому выглядит одинаково в обоих оформлениях и в тёмном режиме.
+   ===================================================================== */
+
+/* ---------- Неделя ---------- */
+.wk { display: flex; align-items: stretch; gap: 4px; margin-top: 8px; }
+.wk-days { flex: 1; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.wk-day {
+  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 7px 0 6px; border-radius: 14px;
+  background: var(--card); border: 1px solid var(--line); color: var(--text); cursor: pointer; font: inherit;
+  transition: background-color .2s ease, color .2s ease, transform .15s ease;
+}
+.wk-day span { font-size: 11px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.wk-day b { font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.wk-day i { width: 5px; height: 5px; border-radius: 50%; background: transparent; }
+.wk-day i.has { background: var(--faint); }
+.wk-day i.warn { background: var(--red); }
+.wk-day.today b { color: var(--accent); }
+.wk-day.off { opacity: .55; }
+.wk-day.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); opacity: 1; }
+.wk-day.on span, .wk-day.on b { color: var(--accent-ink); }
+.wk-day.on i.has { background: var(--accent-ink); }
+.wk-day:active { transform: scale(.94); }
+.wk-nav {
+  flex: none; width: 30px; border-radius: 12px; display: grid; place-items: center; color: var(--muted);
+  background: transparent; border: 0; cursor: pointer;
+}
+.wk-nav svg { width: 20px; height: 20px; transform: rotate(90deg); }
+.wk-nav.next svg { transform: rotate(-90deg); }
+.wk-nav:active { background: var(--card-2); }
+.wk-back { text-align: center; margin-top: 6px; }
+.wk-back .link-btn { font-size: 14px; }
+
+/* ---------- Занятия дня ---------- */
+.t-day .lesson + .lesson { margin-top: 10px; }
+.lesson .row > .time-col { display: block; } /* на телефоне время у занятий оставляем колонкой */
+.lesson .lesson-h { align-items: center; }
+.lesson .lesson-h .btn { flex: none; }
+.lesson .kid { align-items: center; padding-left: calc(14px + 46px + 12px); }
+.lesson .kid + .kid::before, .lesson .lesson-h + .kid::before { left: calc(14px + 46px + 12px); }
+.lesson .kid .title a { color: inherit; text-decoration: none; }
+.lesson .kid .title .pill { margin-left: 2px; }
+
+/* Заморозка ученика на день */
+.fz-b { flex: none; height: 32px; padding: 0 10px; background: transparent; color: var(--muted); }
+.fz-b svg { width: 16px; height: 16px; }
+.lesson .kid.frozen .title a, .lesson .kid.frozen .title { color: var(--muted); }
+.lesson .kid .pill svg { width: 12px; height: 12px; }
+
+/* Пробный в расписании и во вкладке «Пробные» */
+.t-trial { position: relative; }
+.t-trial::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--s-trial); pointer-events: none; }
+.t-trial.need::after { background: var(--red); }
+.t-trial .time-col:empty { display: none; }
+.t-trial .actions { margin-top: 10px; }
+.t-note {
+  margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--card-2); font-size: 14px; line-height: 1.4;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.section > .lesson + .lesson { margin-top: 10px; }
+
+/* ---------- Ученики ---------- */
+.ava-s {
+  width: 36px; height: 36px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 16px;
+}
+:root[data-skin="brand"] .ava-s { background: var(--e-lime); color: var(--e-dark); }
+.t-pay { margin-top: 5px !important; }
+.t-pay .pill { margin-right: 2px; }
+.t-gone { width: 100%; }
+.att-hist { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px; }
+.ah {
+  display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px 0 8px; border-radius: 14px;
+  font-size: 13px; font-weight: 600;
+}
+.ah svg { width: 14px; height: 14px; }
+.ah.fz { background: var(--accent-soft); color: var(--accent); }
+.ah button { display: grid; place-items: center; width: 20px; height: 20px; margin: 0 -4px 0 2px; border-radius: 50%; color: inherit; background: transparent; border: 0; }
+.ah button svg { width: 12px; height: 12px; }
+:root[data-skin="brand"] .ah.fz { background: var(--e-lime); color: var(--e-dark); }
+
+/* ---------- Менеджер смотрит кабинет ---------- */
+.preview-bar { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.preview-bar button {
+  display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 13px;
+  background: var(--card); color: var(--text); border: 0; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+}
+.preview-bar button svg { width: 13px; height: 13px; }
+.tb-row > .btn + .btn { margin-left: -4px; }
+
+@media (max-width: 389px) {
+  .lesson .kid { padding-left: 14px; }
+  .lesson .kid + .kid::before, .lesson .lesson-h + .kid::before { left: 14px; }
+  .fz-b span { display: none; }
+  .tb-inv { display: none; }
+}
+@media (min-width: 1000px) {
+  .lesson .kid { padding-left: calc(14px + 44px + 10px); }
+  .lesson .kid + .kid::before, .lesson .lesson-h + .kid::before { left: calc(14px + 44px + 10px); }
+  .fz-b { height: 30px; }
+  .wk { max-width: 760px; }
+  .t-day { max-width: 760px; }
+}
+
+/* ---------- Ученик: статус, заморозки ---------- */
+.t-status .chip-btn { flex: 1; justify-content: center; border: 0; background: transparent; height: 36px; border-radius: 9px; }
+.t-status .chip-btn.on { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+:root[data-skin="brand"] .t-status .chip-btn.on { background: var(--e-dark); color: var(--e-lime); }
+.chips .chip-btn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.fz-count { display: flex; align-items: center; gap: 8px; }
+.fz-count .btn { width: 34px; padding: 0; font-size: 18px; }
+.section-h .pill { flex: none; }
+
+/* ---------- Часы и статусы ---------- */
+.t-hour { width: 100%; text-align: left; background: transparent; border: 0; font: inherit; color: inherit; cursor: pointer; align-items: center; }
+.t-hour > svg { width: 18px; height: 18px; color: var(--faint); transform: rotate(-90deg); flex: none; }
+.t-hour.out { opacity: .5; }
+.t-hour .time-col { display: block; }
+.t-hour:active { background: var(--card-2); }
+.section-h .link { display: inline-flex; align-items: center; gap: 5px; }
+.section-h .link svg { width: 15px; height: 15px; }
+
+/* ---------- Зарплата ---------- */
+.t-week { margin: 12px 4px 0; font-weight: 650; color: var(--muted); font-size: 14px; }
+.zp-sum { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; align-self: center; }
+.quick.t3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.zp-hello .zp-total { grid-column: span 2; }
+.zp-hello .stat b, .stat.sm b { white-space: nowrap; }
+.stat.sm b { font-size: 19px; }
+:root[data-skin="brand"] .stat.sm b { font-size: 20px; }

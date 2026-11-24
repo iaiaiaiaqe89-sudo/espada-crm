@@ -67,6 +67,8 @@ const Demo = (() => {
       { date: day(-3), time: '17:00', teacher: 'Дмитрий', name: 'Мирлан', grade: '9', phone: '0700000109', format: 'Офлайн', result: 'Думает', who: 'Алтынай', comment: '' },
       { date: day(-5), time: '15:00', teacher: 'Акбар', name: 'Эльдана', grade: '4', phone: '0700000110', format: 'Офлайн', result: 'Записался', who: 'Алтынай', comment: '' },
       { date: day(1), time: '16:00', teacher: 'Артур', name: 'Арууке', grade: '6', phone: '0700000107', format: 'Онлайн', result: '', who: 'Алтынай', comment: '' },
+      { date: day(-1), time: '17:00', teacher: 'Артур', name: 'Нурбек', grade: '7', phone: '0700000208', format: 'Офлайн', result: '', who: 'Билал', comment: 'Мама просит группу после школы' },
+      { date: day(-4), time: '18:00', teacher: 'Артур', name: 'Дастан', grade: '5', phone: '0700000209', format: 'Офлайн', result: 'Записался', who: 'Алтынай', comment: 'Преп.: хорошо считает, слабые дроби' },
     ].map((t, i) => ({ row: i + 3, ...t }));
     const payments = [
       { teacher: 'Артур', name: 'Алихан', phone: '0700000301', status: 'Продлить', debt: '0', nextDate: ruD(day(2)) },
@@ -113,7 +115,8 @@ const Demo = (() => {
       me: 'Алтынай', main: 'Алтынай', users: USERS, today: day(0), teachers: TEACHERS, settings: SETTINGS,
       stages: [], results: [], leads: db.leads, tasks: db.tasks, trials: db.trials, payments: db.payments,
       telegram: { bot: 'espada_demo_bot', linked: false, link: 'https://t.me/' },
-      teacherBot: TEACHERS.map((n, i) => ({ name: n, linked: i < 2, link: 'https://t.me/espada_demo_bot?start=t' + i })),
+      teacherBot: TEACHERS.map((n, i) => ({ name: n, linked: i < 2, link: 'https://t.me/espada_demo_bot?start=t' + i,
+        cab: location.href.split('#')[0] + '#api=https://script.google.com/demo&k=demo' + i, seen: i < 3 ? day(-i) : '' })),
       links: { base: 'https://docs.google.com/spreadsheets/', sched: 'https://docs.google.com/spreadsheets/' },
     }),
     saveLead: (r) => {
@@ -279,6 +282,203 @@ const Demo = (() => {
     deleteTask: (r) => {
       db.tasks = db.tasks.filter((t) => t.id !== r.id);
       return { removed: { tasks: [r.id] } };
+    },
+  });
+
+  /* ---------- Кабинет преподавателя ---------- */
+  const DOWS = { 'Пн': 1, 'Вт': 2, 'Ср': 3, 'Чт': 4, 'Пт': 5, 'Сб': 6 };
+  const PATTERNS = {};
+  ['Пн-Ср-Пт', 'Вт-Чт-Сб', 'Пн-Ср', 'Вт-Чт', 'Сб', 'Вт + Сб×2'].forEach((n) => {
+    const w = [0, 0, 0, 0, 0, 0, 0];
+    (n.match(/Пн|Вт|Ср|Чт|Пт|Сб/g) || []).forEach((x) => { w[DOWS[x]] = 1; });
+    if (/Сб×2/.test(n)) w[6] = 2;
+    PATTERNS[n] = w;
+  });
+  const RATES = { 'Группа': 200, 'Пара': 540, 'Инд': 400 };
+  const KIDS = [
+    ['Алима', '8', 'Инд', 'Офлайн', 'Пн-Ср-Пт', '16:00', 12000, 12000, -22, 3],
+    ['Малика', '9', 'Инд', 'Онлайн', 'Вт-Чт-Сб', '16:00', 12000, 12000, -27, 0],
+    ['Айдай', '11', 'Группа', 'Офлайн', 'Вт-Чт-Сб', '17:00', 6000, 6000, -8, 1],
+    ['Адина', '7', 'Группа', 'Офлайн', 'Вт-Чт-Сб', '17:00', 6000, 6000, 0, 0],
+    ['Мээрим', '9', 'Группа', 'Офлайн', 'Вт-Чт-Сб', '17:00', 6000, 6000, -15, 0],
+    ['Сайкал', '9', 'Группа', 'Офлайн', 'Пн-Ср-Пт', '17:00', 6000, 6000, -10, 0],
+    ['Эмир', '9', 'Группа', 'Офлайн', 'Пн-Ср-Пт', '17:00', 6000, 2000, -12, 0],
+    ['Розанна', '8', 'Группа', 'Офлайн', 'Пн-Ср-Пт', '17:00', 6000, 6000, -5, 0],
+    ['Аслан', '5', 'Группа', 'Офлайн', 'Пн-Ср-Пт', '18:00', 6000, 6000, -29, 2],
+    ['Перизат', '5', 'Группа', 'Офлайн', 'Вт-Чт-Сб', '18:00', 6000, 6000, -17, 0],
+    ['Амалия', '5', 'Инд', 'Онлайн', 'Вт + Сб×2', '19:00', 12000, 12000, -20, 0],
+    ['Тимур', '6', 'Пара', 'Офлайн', 'Пн-Ср-Пт', '19:00', 8000, 8000, -9, 0],
+    ['Сезим', '6', 'Пара', 'Офлайн', 'Пн-Ср-Пт', '19:00', 8000, 8000, -9, 0],
+  ];
+  const ws = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dS(d); };
+  const addD = (s, n) => { const d = new Date(s + 'T12:00'); d.setDate(d.getDate() + n); return dS(d); };
+  const dowOf = (s) => new Date(s + 'T12:00').getDay();
+  /** Пересчёт того, что в «Базе» делают формулы: долг, следующая оплата, статус, ЗП за неделю. */
+  function calc(c, s) {
+    s.debt = Math.max(0, (s.price || 0) - (s.paid || 0));
+    const w = PATTERNS[s.days] || [];
+    s.next = ''; s.nextText = '';
+    if (s.payDate && s.days) {
+      let cnt = 0, d = s.payDate;
+      const need = (Number(s.lessons) || 12) + 1 + (Number(s.freezes) || 0);
+      for (let i = 0; i < 400; i++) { cnt += w[dowOf(d)] || 0; if (cnt >= need) { s.next = d; break; } d = addD(d, 1); }
+    }
+    const t = day(0);
+    s.payStatus = s.status === 'Выбыл' ? '—' : s.status === 'Заморозка' ? 'Заморозка' : s.debt > 0 ? 'Долг' : !s.payDate ? 'Укажи дату оплаты'
+      : !s.days ? 'Укажи дни занятий' : s.next < t ? 'Закончился' : (new Date(s.next) - new Date(t)) / 864e5 <= 2 ? 'Продлить' : 'Оплачено';
+    s.zpLessons = 0;
+    if (s.status === 'Учится' && s.paid > 0 && s.next) {
+      for (let i = 0; i < 6; i++) {
+        const d = addD(ws(), i);
+        if (d < s.next && d <= t && !c.freezes.some((f) => f.d === d && f.n === s.name)) s.zpLessons += w[dowOf(d)] || 0;
+      }
+    }
+    s.zp = s.zpLessons * (RATES[s.format] || 0);
+    return s;
+  }
+  function cab(name) {
+    db.cab = db.cab || {};
+    if (db.cab[name] && db.cab[name].v === 2) return db.cab[name];
+    const students = KIDS.map(([n, g, f, o, d, t, price, paid, pd, fr], i) => ({ row: i + 4, name: n, phone: '07000004' + p2(i), grade: g, format: f, onl: o,
+      days: d, time: t, price, paid, payDate: day(pd), freezes: fr, status: 'Учится', comment: n === 'Айдай' ? 'Перевелась в группу с индивидуальных' : '', lessons: '' }));
+    students.push({ row: 17, name: 'София', phone: '', grade: '3', format: 'Пара', onl: 'Онлайн', days: 'Пн-Ср-Пт', time: '19:00', price: 8000, paid: 8000,
+      payDate: day(-60), freezes: 0, status: 'Выбыл', comment: '', lessons: '' });
+    const c = { v: 2, students, freezes: [], pays: {} };
+    const nextFri = [...Array(7)].map((_, i) => day(i + 1)).find((d) => dowOf(d) === 5);
+    c.freezes.push({ d: nextFri, n: 'Аслан', k: 1 });
+    db.cab[name] = c;
+    return c;
+  }
+  function grid(c) {
+    const slots = [];
+    for (let dow = 1; dow <= 6; dow++) {
+      ['15:00', '16:00', '17:00', '18:00', '19:00', '20:00'].forEach((time) => {
+        const kids = c.students.filter((s) => s.status !== 'Выбыл' && s.time === time && (PATTERNS[s.days] || [])[dow]);
+        const set = (c.types || {})[dow + '|' + time];
+        if (!kids.length && !set) return;
+        const f = kids[0] ? kids[0].format : '';
+        slots.push({ dow, time, type: set !== undefined ? set : f === 'Группа' ? 'Гр. есть места' : f,
+          who: kids.length ? `${kids.length} чел.: ${kids.map((s) => `${s.name} ${s.grade} кл${s.onl === 'Онлайн' ? ' онл' : ''}`).join(', ')}` : '' });
+      });
+    }
+    const hours = [1, 2, 3, 4, 5, 6].map((dow) => ({ dow, from: '15:00', to: '20:00', off: false, ...((c.hours || {})[dow] || {}) }));
+    return { hours, slots };
+  }
+  const students = (c) => c.students.map((s) => calc(c, s));
+  function zp(c, name) {
+    const list = students(c);
+    const lessons = list.reduce((n, s) => n + s.zpLessons, 0);
+    const accrued = list.reduce((n, s) => n + s.zp, 0);
+    return { week: 'Эта неделя', from: ws(), scheme: 'За уроки', lessons, payments: 0, accrued, trials: 200, correction: 0, total: accrued + 200, comment: '',
+      rates: [['Группа', '200'], ['Пара', '540'], ['Инд', '400'], ['% от оплат', '40%'], ['За запись с пробного', '200']],
+      journal: [{ date: day(-((new Date().getDay() || 7))), week: addD(ws(), -7), sum: 5400, comment: '' }, { date: addD(ws(), -8), week: addD(ws(), -14), sum: 6200, comment: 'с заменой' }] };
+  }
+  const tKey = (t) => [t.date, t.time, norm(t.phone) || t.name, t.teacher].join('|');
+  const tTrial = (t) => ({ row: t.row, key: tKey(t), date: t.date, time: t.time, name: t.name, grade: t.grade, format: t.format,
+    result: t.result, comment: t.comment, mine: !!t.result && (db.own || {})[tKey(t)] === t.result });
+  const trialOf = (r) => {
+    const t = db.trials.find((x) => tKey(x) === r.key) || db.trials.find((x) => x.row === r.row);
+    if (!t || t.teacher !== r.as) throw new Error('Этого пробного уже нет в таблице');
+    return t;
+  };
+  const studentOf = (c, r) => {
+    const s = c.students.find((x) => x.name === (r.orig || r.name) && (!r.row || x.row === Number(r.row)));
+    if (!s) throw new Error('Строки в «Базе» сдвинулись — обновите страницу');
+    return s;
+  };
+  Object.assign(A, {
+    tBootstrap: (r) => {
+      const c = cab(r.as);
+      return {
+        role: 'teacher', me: r.as, preview: true, main: 'Алтынай', today: day(0), results: [],
+        grid: grid(c), students: students(c), freezes: c.freezes, zp: zp(c, r.as),
+        meta: { days: Object.keys(PATTERNS), patterns: PATTERNS, prices: { 'Группа': 6000, 'Пара': 8000, 'Инд': 12000 }, formats: ['Группа', 'Пара', 'Инд'],
+          statuses: ['Учится', 'Заморозка', 'Выбыл'], types: ['Гр. есть места', 'Гр. полная', 'Пара', 'Инд', 'Свободно', 'Не работает'],
+          from: ['выходной', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'],
+          to: ['11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'] },
+        trials: db.trials.filter((t) => t.teacher === r.as).map(tTrial),
+        telegram: { bot: 'espada_demo_bot', linked: r.as === 'Артур', link: 'https://t.me/espada_demo_bot' },
+      };
+    },
+    tResult: (r) => {
+      const t = trialOf(r);
+      db.own = db.own || {};
+      if (t.result && db.own[tKey(t)] !== t.result) throw new Error('Итог уже поставил менеджер: ' + t.result);
+      t.result = r.result;
+      db.own[tKey(t)] = r.result;
+      const l = db.leads.find((x) => norm(x.phone) === norm(t.phone) && x.trialDate === t.date);
+      if (l) applyResult(l, r.result);
+      return { trials: [tTrial(t)] };
+    },
+    tNote: (r) => {
+      const t = trialOf(r);
+      t.comment = (t.comment ? t.comment + '\n' : '') + 'Преп.: ' + r.text;
+      return { trials: [tTrial(t)] };
+    },
+    tStudent: (r) => {
+      const c = cab(r.as);
+      const v = r.student;
+      const num = (x) => (x === '' || x == null ? 0 : Number(x));
+      const vals = { name: v.name, phone: v.phone, grade: v.grade, format: v.format, onl: v.onl, days: v.days, time: v.time, price: num(v.price),
+        paid: num(v.paid), payDate: v.payDate || '', freezes: num(v.freezes), status: v.status || 'Учится', comment: v.comment || '', lessons: v.lessons || '' };
+      if (v.row) Object.assign(studentOf(c, v), vals);
+      else {
+        if (!r.force && c.students.some((s) => s.name.toLowerCase() === v.name.toLowerCase() && s.status !== 'Выбыл')) return { duplicate: true };
+        c.students.push({ row: Math.max(...c.students.map((s) => s.row)) + 1, ...vals });
+      }
+      return { students: students(c) };
+    },
+    tPay: (r) => {
+      const c = cab(r.as);
+      const s = studentOf(c, r);
+      const id = 'p' + Date.now();
+      c.pays[id] = { name: s.name, row: s.row, payDate: s.payDate, paid: s.paid, freezes: s.freezes };
+      if (r.mode === 'renew') Object.assign(s, { payDate: r.date || day(0), paid: Number(r.amount), freezes: 0 });
+      else s.paid += Number(r.amount);
+      return { payment: { id }, students: students(c) };
+    },
+    tUndoPay: (r) => {
+      const c = cab(r.as);
+      const p = c.pays[r.id];
+      if (!p) throw new Error('Запись об оплате не найдена');
+      Object.assign(studentOf(c, p), { payDate: p.payDate, paid: p.paid, freezes: p.freezes });
+      delete c.pays[r.id];
+      return { students: students(c) };
+    },
+    tFreeze: (r) => {
+      const c = cab(r.as);
+      const done = [], skipped = [];
+      r.names.forEach((n) => {
+        const s = c.students.find((x) => x.name === n && x.status !== 'Выбыл');
+        if (!s) throw new Error(`Ученика «${n}» нет в вашем списке`);
+        calc(c, s);
+        const i = c.freezes.findIndex((f) => f.d === r.date && f.n === n);
+        const k = (PATTERNS[s.days] || [])[dowOf(r.date)] || 0;
+        if (r.on) {
+          if (i >= 0) { done.push(n); return; }
+          if (!k) { skipped.push(`${n}: в этот день нет урока по дням занятий`); return; }
+          if (r.date < s.payDate) { skipped.push(`${n}: этот день раньше последней оплаты`); return; }
+          if (s.next && r.date >= s.next) { skipped.push(`${n}: к этому дню абонемент закончится — сначала отметьте оплату`); return; }
+          c.freezes.push({ d: r.date, n, k });
+          s.freezes += k;
+        } else {
+          if (i < 0) { done.push(n); return; }
+          s.freezes = Math.max(0, s.freezes - c.freezes[i].k);
+          c.freezes.splice(i, 1);
+        }
+        done.push(n);
+      });
+      return { done, skipped, students: students(c), freezes: c.freezes };
+    },
+    tSlot: (r) => {
+      const c = cab(r.as);
+      if (r.type !== undefined) { c.types = c.types || {}; c.types[r.dow + '|' + r.time] = r.type; }
+      else { c.hours = c.hours || {}; c.hours[r.dow] = { from: r.from === 'выходной' ? '' : r.from, to: r.from === 'выходной' ? '' : r.to, off: r.from === 'выходной' }; }
+      return { grid: grid(c) };
+    },
+    tMsg: (r) => {
+      addTask({ title: `От ${r.as}: ${r.text}`, leadName: r.student ? `${r.student} (${r.as})` : '', due: soon(), author: r.as + ' (преп.)' });
+      return { ok: true };
     },
   });
 

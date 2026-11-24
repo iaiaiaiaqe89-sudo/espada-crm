@@ -114,6 +114,9 @@ const ICONS = {
   chev: '<path d="M7 10l5 5 5-5"/>',
   trash: '<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5L17.5 7M10.2 11v6M13.8 11v6"/>',
   alert: '<path d="M12 8.5v4.5"/><path d="M12 16.6v.1"/><path d="M10.3 3.9L2.6 17.5a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  wallet: '<rect x="3.5" y="6.5" width="17" height="13" rx="2.6"/><path d="M14.5 13h6"/><path d="M6.5 6.5l8.8-2.7a1.6 1.6 0 0 1 2 1.5v1.2"/>',
+  snow: '<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/><path d="M9.6 4.6L12 7l2.4-2.4M9.6 19.4L12 17l2.4 2.4"/>',
+  users: '<circle cx="9" cy="8.5" r="3.4"/><path d="M2.8 19.5c1-3.2 3.4-5 6.2-5s5.2 1.8 6.2 5"/><path d="M15.2 5.4a3.4 3.4 0 0 1 0 6.3M17.6 14.8c1.7.7 2.9 2.3 3.6 4.7"/>',
 };
 /** Знак «Эспада»: шлем из синусоиды и оси Y (по брендбуку). Цвета задаются темой. */
 const LOGO = `<svg viewBox="0 0 100 128" aria-hidden="true">
@@ -194,6 +197,8 @@ const S = {
   slots: {},
   nums: {},
   expanded: {},
+  as: null, // менеджер смотрит кабинет этого преподавателя
+  mgr: null, // данные CRM, пока открыт кабинет
 };
 const cacheKey = () => 'espada-cache-' + (CFG.demo ? 'demo' : (CFG.key || '').slice(0, 6));
 
@@ -220,12 +225,14 @@ function merge(r) {
 
 async function load(silent) {
   S.busy++; updBusy();
+  const as = S.as;
   try {
-    const d = await call('bootstrap');
+    const d = as ? await call('tBootstrap', { as }) : await call('bootstrap');
+    if (S.as !== as) return; // пока грузилось, менеджер открыл или закрыл кабинет преподавателя
     const first = !S.d;
     S.d = d;
     S.loadedAt = Date.now();
-    lsSet(cacheKey(), JSON.stringify(d));
+    if (!as) lsSet(cacheKey(), JSON.stringify(d));
     render(first ? { anim: 'fade' } : {});
     rerenderSheets();
   } catch (e) {
@@ -321,23 +328,33 @@ function trialVars(x) {
 
 const TAB_ORDER = ['today', 'board', 'tasks', 'more'];
 const TITLES = { today: 'Сегодня', board: 'Лиды', tasks: 'Задачи', more: 'Ещё' };
-const VIEWS = { today: () => viewToday(), board: () => viewBoard(), tasks: () => viewTasks(), more: () => viewMore() };
+const VIEWS = {
+  today: () => viewToday(), board: () => viewBoard(), tasks: () => viewTasks(), more: () => viewMore(),
+  // кабинет преподавателя (teacher.js)
+  tday: () => tViewDay(), ttrial: () => tViewTrials(), tstud: () => tViewStudents(), tzp: () => tViewZp(), tmore: () => tViewMore(),
+};
+/** Вкладки и заголовки зависят от того, кто открыл приложение: менеджер или преподаватель. */
+const tabList = () => (isTeacher() ? T_TABS : TAB_ORDER);
+const tabTitle = (v) => (isTeacher() ? T_TITLES : TITLES)[v];
+const tabIcon = (v) => T_TAB_IC[v] || v;
 
 /**
  * Каркас — меню слева, шапка, нижняя панель и «+» — рисуется один раз и дальше только обновляется.
  * Раньше он пересоздавался при каждой перерисовке, и на Android нижняя панель мигала и «дёргалась».
  */
 function shell() {
+  const teacher = isTeacher();
   return `
     <aside class="sidebar">
-      <div class="brand"><span class="mark">${mark()}</span><span>Эспада CRM</span></div>
-      <button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>
-      <nav class="side-nav">${TAB_ORDER.map((v) => `
-        <button class="nav-item" data-act="tab" data-v="${v}">${ic(v)}<span>${TITLES[v]}</span><span class="badge hidden"></span></button>`).join('')}</nav>
+      <div class="brand"><span class="mark">${mark()}</span><span>${teacher ? 'Эспада' : 'Эспада CRM'}</span></div>
+      ${teacher ? '' : `<button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>`}
+      <nav class="side-nav">${tabList().map((v) => `
+        <button class="nav-item" data-act="tab" data-v="${v}">${ic(tabIcon(v))}<span>${tabTitle(v)}</span><span class="badge hidden"></span></button>`).join('')}</nav>
       <div class="side-foot">${ic('user', 2)}<span class="me-name"></span><span class="pill accent hidden me-main">главный</span></div>
     </aside>
     <div class="app-body">
-      ${CFG.demo ? '<div class="demo-bar">Демо-режим: данные ненастоящие и хранятся только на этом устройстве</div>' : ''}
+      ${S.as ? `<div class="demo-bar preview-bar"><span>Кабинет преподавателя: ${esc(S.as)}</span><button data-act="exitCab">${ic('x', 2.6)}Вернуться в CRM</button></div>`
+        : CFG.demo ? '<div class="demo-bar">Демо-режим: данные ненастоящие и хранятся только на этом устройстве</div>' : ''}
       <header class="topbar">
         <div class="tb-logo">${LOGO}</div>
         <div class="tb-text" style="flex:1;min-width:0"><h1 id="tbTitle"></h1><div class="sub" id="tbSub"></div></div>
@@ -345,9 +362,9 @@ function shell() {
       </header>
       <main id="view"></main>
     </div>
-    <button class="fab" data-act="newLead" aria-label="Новый лид">${ic('plus', 2.4)}</button>
-    <nav class="tabbar">${TAB_ORDER.map((v) => `
-      <button class="tab" data-act="tab" data-v="${v}">${ic(v)}<span>${TITLES[v]}</span><span class="badge hidden"></span></button>`).join('')}</nav>`;
+    ${teacher ? '' : `<button class="fab" data-act="newLead" aria-label="Новый лид">${ic('plus', 2.4)}</button>`}
+    <nav class="tabbar">${tabList().map((v) => `
+      <button class="tab" data-act="tab" data-v="${v}">${ic(tabIcon(v))}<span>${tabTitle(v)}</span><span class="badge hidden"></span></button>`).join('')}</nav>`;
 }
 
 /**
@@ -357,12 +374,23 @@ function shell() {
 function render(opts = {}) {
   if (!S.d) return;
   const anim = opts.anim && !reduced() ? opts.anim : '';
-  if (!$('#app .tabbar') || !$('#view')) $('#app').innerHTML = shell();
-  const view = VIEWS[S.view] ? S.view : 'today';
+  const teacher = isTeacher();
+  const mode = (teacher ? 't:' : 'm:') + (S.as || '');
+  if (!$('#app .tabbar') || !$('#view') || $('#app').dataset.mode !== mode) {
+    $('#app').innerHTML = shell();
+    $('#app').dataset.mode = mode;
+  }
+  const tabs = tabList();
+  if (!tabs.includes(S.view)) S.view = (teacher && !S.as && tabs.includes(lsGet('espada-tview')) && lsGet('espada-tview')) || tabs[0];
+  const view = S.view;
   const d = parseD(todayS());
-  const overdue = openTasks().filter((x) => myTask(x) && x.due && x.due < nowS()).length;
-  const fresh = S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me())).length;
-  const badges = { today: overdue + fresh, tasks: overdue };
+  let badges;
+  if (teacher) badges = tBadges();
+  else {
+    const overdue = openTasks().filter((x) => myTask(x) && x.due && x.due < nowS()).length;
+    const fresh = S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me())).length;
+    badges = { today: overdue + fresh, tasks: overdue };
+  }
 
   // каркас: только активный пункт, счётчики и подписи
   $$('#app .nav-item, #app .tab').forEach((b) => {
@@ -372,11 +400,12 @@ function render(opts = {}) {
     badge.textContent = badges[v] || '';
     badge.classList.toggle('hidden', !badges[v]);
   });
-  $('#tbTitle').textContent = TITLES[view];
-  $('#tbSub').textContent = view === 'today' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : me();
+  $('#tbTitle').textContent = tabTitle(view);
+  $('#tbSub').textContent = view === 'today' || view === 'tday' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : me();
   $('.me-name').textContent = me();
-  $('.me-main').classList.toggle('hidden', !isMain());
-  $('.fab').classList.toggle('fab-off', view === 'more');
+  $('.me-main').classList.toggle('hidden', teacher || !isMain());
+  const fab = $('.fab');
+  if (fab) fab.classList.toggle('fab-off', view === 'more');
   $('.app-body').className = 'app-body view-' + view;
   $('#busy').classList.toggle('spin', S.busy > 0);
 
@@ -534,7 +563,7 @@ function afterRender(anim) {
   else if (anim) staggerIn(view, isWide() ? '.hello, .toolbar, .section, .card' : '.hello, .toolbar, .stage-tabs, .section, .col.on .card', 16);
   const nums = [];
   $$('.stat', view).forEach((el, i) => nums.push(['s' + i, $('b', el).textContent, el]));
-  TAB_ORDER.forEach((v) => {
+  tabList().forEach((v) => {
     [['t', '.tab'], ['n', '.nav-item']].forEach(([p, sel]) => {
       const b = $(`${sel}[data-v="${v}"] .badge`);
       nums.push([p + v, b ? b.textContent : '', b]);
@@ -963,18 +992,19 @@ function viewTasks() {
 
 /* ============================== Ещё ============================== */
 
-/** Преподаватели в Telegram: кто подключён и кнопка отправить ссылку. */
+/** Преподаватели: личный кабинет и бот в Telegram. Можно открыть кабинет любого или отправить приглашение. */
 function teacherBotSection(d) {
   const list = d.teacherBot || [];
   if (!list.length) return '';
-  const on = list.filter((t) => t.linked).length;
-  return `<section class="section"><div class="section-h"><h2>Преподаватели в Telegram</h2><span class="count">${on} из ${list.length}</span></div>
+  const seen = list.filter((t) => t.seen).length;
+  return `<section class="section"><div class="section-h"><h2>Преподаватели</h2><span class="count">в кабинете ${seen} из ${list.length}</span></div>
     <div class="list">${list.map((t) => `<div class="row tb-row">
       <div class="tb-name"><div class="title">${esc(t.name)}</div>
-        <div class="meta">${t.linked ? '<span class="pill green">подключён</span>' : 'не подключён'}</div></div>
-      <button class="btn" data-act="teacherLink" data-name="${esc(t.name)}">${ic('send', 2)}${t.linked ? 'Ссылка' : 'Пригласить'}</button>
+        <div class="meta">${t.seen ? `вход: ${esc(dayLabel(t.seen))}` : 'входа ещё не было'}${t.linked ? ' · <span class="pill green">Telegram</span>' : ''}</div></div>
+      <button class="btn" data-act="openCab" data-name="${esc(t.name)}">Открыть</button>
+      <button class="btn" data-act="teacherLink" data-name="${esc(t.name)}" aria-label="Пригласить ${esc(t.name)}">${ic('send', 2)}<span class="tb-inv">Пригласить</span></button>
     </div>`).join('')}</div>
-    <p class="hint">Утром бот присылает преподавателю пробные на день, а после занятия спрашивает итог кнопками. Ответ сразу попадает в «Пробные» и в карточку лида, а вам приходит уведомление.</p></section>`;
+    <p class="hint">«Открыть» — кабинет глазами преподавателя: там он ведёт своих учеников в «Базе» (оплаты, статусы, заморозки), меняет статусы часов в расписании, ставит итоги пробных и видит свою зарплату. «Пригласить» — отправить личную ссылку на кабинет и бота. О новых учениках, сменах статуса и оплатах вам приходит сообщение в Telegram.</p></section>`;
 }
 
 function viewMore() {
@@ -1701,9 +1731,10 @@ const ACT = {
   tab(el) {
     const v = el.dataset.v;
     if (v === S.view) { window.scrollTo({ top: 0, behavior: reduced() ? 'auto' : 'smooth' }); return; }
-    const dir = TAB_ORDER.indexOf(v) > TAB_ORDER.indexOf(S.view) ? 'left' : 'right';
+    const tabs = tabList();
+    const dir = tabs.indexOf(v) > tabs.indexOf(S.view) ? 'left' : 'right';
     S.view = v;
-    lsSet('espada-view', v);
+    if (!S.as) lsSet(isTeacher() ? 'espada-tview' : 'espada-view', v);
     window.scrollTo(0, 0);
     render({ anim: dir });
     flash($('.tab.on svg'), 'pop');
@@ -1772,7 +1803,9 @@ const ACT = {
   async teacherLink(el) {
     const t = (S.d.teacherBot || []).find((x) => x.name === el.dataset.name);
     if (!t) return;
-    const text = `Здравствуйте, ${t.name}! Это бот центра «Эспада»: утром он пришлёт ваши пробные на день, а после занятия спросит, как прошло, — ответить можно одной кнопкой. Откройте ссылку и нажмите «Старт»: ${t.link}`;
+    let text = `Здравствуйте, ${t.name}! Это ваш личный кабинет в «Эспаде»: расписание, ученики и их оплаты, заморозки, итоги пробных и ваша зарплата. `
+      + `Откройте ссылку в Safari или Chrome и добавьте страницу на экран «Домой». Ссылка личная, не пересылайте её: ${t.cab}`;
+    if (t.link && !t.linked) text += `\n\nИ подключите бота в Telegram: утром он пришлёт пробные на день, а после занятия спросит, как прошло. Откройте и нажмите «Старт»: ${t.link}`;
     if (navigator.share) {
       try { await navigator.share({ text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
     }
@@ -1874,6 +1907,8 @@ const ACT = {
   },
 };
 
+Object.assign(ACT, T_ACT); // действия кабинета преподавателя (teacher.js)
+
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
@@ -1891,7 +1926,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => appl
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && stack.length) return stack[stack.length - 1].close();
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '') || (e.target && e.target.isContentEditable);
-  if (typing || e.metaKey || e.ctrlKey || e.altKey || !S.d || stack.length) return;
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || !S.d || stack.length || isTeacher()) return;
   const k = e.key.toLowerCase();
   if (k === 'n' || k === 'т') { e.preventDefault(); openLeadForm(); }
   if (e.key === '/') {
@@ -1929,7 +1964,7 @@ function boot() {
   applySkin(lsGet('espada-skin'));
   if (!CFG.demo && !(CFG.api && CFG.key)) return renderLogin();
   addChrome();
-  try { const c = JSON.parse(lsGet(cacheKey()) || 'null'); if (c && c.leads) { S.d = c; render({ anim: 'fade' }); } } catch { /* кеш повреждён */ }
+  try { const c = JSON.parse(lsGet(cacheKey()) || 'null'); if (c && (c.leads || c.role === 'teacher')) { S.d = c; render({ anim: 'fade' }); } } catch { /* кеш повреждён */ }
   if (!S.d) renderSkeleton();
   load();
   initGestures();
