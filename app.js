@@ -251,6 +251,7 @@ async function run(action, payload, optimistic) {
   try {
     const r = await call(action, payload);
     merge(r);
+    if (['enroll', 'recordPayment', 'undoPayment', 'setTrialResult', 'deleteTrial', 'bookTrial'].includes(action)) stDirty();
     return r;
   } catch (e) {
     if (snap) { S.d = JSON.parse(snap); render(); rerenderSheets(); }
@@ -326,17 +327,22 @@ function trialVars(x) {
 
 /* ============================== Каркас ============================== */
 
-const TAB_ORDER = ['today', 'board', 'tasks', 'more'];
-const TITLES = { today: 'Сегодня', board: 'Лиды', tasks: 'Задачи', more: 'Ещё' };
+const TAB_ORDER = ['today', 'board', 'students', 'tasks', 'more'];
+/** На компьютере в меню слева есть ещё «Пробные»; на телефоне архив открывается из «Ещё». */
+const SIDE_ORDER = ['today', 'board', 'students', 'trials', 'tasks', 'more'];
+const TITLES = { today: 'Сегодня', board: 'Лиды', students: 'Ученики', trials: 'Пробные', tasks: 'Задачи', more: 'Ещё' };
+const M_TAB_IC = { students: 'users', trials: 'trial' };
 const VIEWS = {
   today: () => viewToday(), board: () => viewBoard(), tasks: () => viewTasks(), more: () => viewMore(),
+  students: () => viewStudents(), trials: () => viewTrials(), // students.js
   // кабинет преподавателя (teacher.js)
   tday: () => tViewDay(), ttrial: () => tViewTrials(), tstud: () => tViewStudents(), tzp: () => tViewZp(), tmore: () => tViewMore(),
 };
 /** Вкладки и заголовки зависят от того, кто открыл приложение: менеджер или преподаватель. */
 const tabList = () => (isTeacher() ? T_TABS : TAB_ORDER);
+const sideList = () => (isTeacher() ? T_TABS : SIDE_ORDER);
 const tabTitle = (v) => (isTeacher() ? T_TITLES : TITLES)[v];
-const tabIcon = (v) => T_TAB_IC[v] || v;
+const tabIcon = (v) => T_TAB_IC[v] || M_TAB_IC[v] || v;
 
 /**
  * Каркас — меню слева, шапка, нижняя панель и «+» — рисуется один раз и дальше только обновляется.
@@ -348,7 +354,7 @@ function shell() {
     <aside class="sidebar">
       <div class="brand"><span class="mark">${mark()}</span><span>${teacher ? 'Эспада' : 'Эспада CRM'}</span></div>
       ${teacher ? '' : `<button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>`}
-      <nav class="side-nav">${tabList().map((v) => `
+      <nav class="side-nav">${sideList().map((v) => `
         <button class="nav-item" data-act="tab" data-v="${v}">${ic(tabIcon(v))}<span>${tabTitle(v)}</span><span class="badge hidden"></span></button>`).join('')}</nav>
       <div class="side-foot">${ic('user', 2)}<span class="me-name"></span><span class="pill accent hidden me-main">главный</span></div>
     </aside>
@@ -362,7 +368,7 @@ function shell() {
       </header>
       <main id="view"></main>
     </div>
-    ${teacher ? '' : `<button class="fab" data-act="newLead" aria-label="Новый лид">${ic('plus', 2.4)}</button>`}
+    ${teacher ? '' : `<button class="fab" data-act="fabNew" aria-label="Новый лид">${ic('plus', 2.4)}</button>`}
     <nav class="tabbar">${tabList().map((v) => `
       <button class="tab" data-act="tab" data-v="${v}">${ic(tabIcon(v))}<span>${tabTitle(v)}</span><span class="badge hidden"></span></button>`).join('')}</nav>`;
 }
@@ -380,7 +386,7 @@ function render(opts = {}) {
     $('#app').innerHTML = shell();
     $('#app').dataset.mode = mode;
   }
-  const tabs = tabList();
+  const tabs = sideList();
   if (!tabs.includes(S.view)) S.view = (teacher && !S.as && tabs.includes(lsGet('espada-tview')) && lsGet('espada-tview')) || tabs[0];
   const view = S.view;
   const d = parseD(todayS());
@@ -395,7 +401,7 @@ function render(opts = {}) {
   // каркас: только активный пункт, счётчики и подписи
   $$('#app .nav-item, #app .tab').forEach((b) => {
     const v = b.dataset.v;
-    b.classList.toggle('on', v === view);
+    b.classList.toggle('on', v === view || (view === 'trials' && v === 'more' && b.classList.contains('tab')));
     const badge = $('.badge', b);
     badge.textContent = badges[v] || '';
     badge.classList.toggle('hidden', !badges[v]);
@@ -405,7 +411,10 @@ function render(opts = {}) {
   $('.me-name').textContent = me();
   $('.me-main').classList.toggle('hidden', teacher || !isMain());
   const fab = $('.fab');
-  if (fab) fab.classList.toggle('fab-off', view === 'more');
+  if (fab) {
+    fab.classList.toggle('fab-off', view === 'more' || view === 'trials');
+    fab.setAttribute('aria-label', view === 'students' ? 'Новый ученик' : 'Новый лид');
+  }
   $('.app-body').className = 'app-body view-' + view;
   $('#busy').classList.toggle('spin', S.busy > 0);
 
@@ -563,7 +572,7 @@ function afterRender(anim) {
   else if (anim) staggerIn(view, isWide() ? '.hello, .toolbar, .section, .card' : '.hello, .toolbar, .stage-tabs, .section, .col.on .card', 16);
   const nums = [];
   $$('.stat', view).forEach((el, i) => nums.push(['s' + i, $('b', el).textContent, el]));
-  tabList().forEach((v) => {
+  sideList().forEach((v) => {
     [['t', '.tab'], ['n', '.nav-item']].forEach(([p, sel]) => {
       const b = $(`${sel}[data-v="${v}"] .badge`);
       nums.push([p + v, b ? b.textContent : '', b]);
@@ -742,6 +751,7 @@ function viewToday() {
       list('tomorrow', tomorrow, (x) => trialRow(x, 'eve|')));
   }
   if (noRes.length) right += sec('sec-nores', 'Заполните итог пробного', noRes.length, list('nores', noRes, noResRow));
+  right += `<button type="button" class="link-btn ar-link" data-act="allTrials">${ic('trial', 2)}Все пробные: архив и конверсия</button>`;
   if (isMain() || pays.length) {
     pay += sec('sec-pays', 'Напомнить об оплате', pays.length || null,
       pays.length ? list('pays', pays, payRow) : `<div class="list">${emptyState('Всем напомнили')}</div>`);
@@ -819,7 +829,7 @@ function payRow(p) {
   const text = debt ? tpl('долг', { 'имя': p.name, 'долг': p.debt }) : tpl('продление', { 'имя': p.name, 'дата': ruDate(p.nextDate) });
   return `<div class="row">
     <div class="main">
-      <div class="title">${esc(p.name)} <span class="pill ${debt ? 'red' : 'amber'}">${esc(p.status)}${debt && p.debt ? ' ' + esc(p.debt) : ''}</span></div>
+      <div class="title"><a data-act="stOpen" data-teacher="${esc(p.teacher)}" data-name="${esc(p.name)}">${esc(p.name)}</a> <span class="pill ${debt ? 'red' : 'amber'}">${esc(p.status)}${debt && p.debt ? ' ' + esc(p.debt) : ''}</span></div>
       <div class="meta">${[p.teacher, p.nextDate ? 'оплата ' + ruDate(p.nextDate) : '', prettyPhone(p.phone)].filter(Boolean).map(esc).join(' · ')}</div>
       <div class="acts"><div class="actions">
         ${p.phone ? waBtn(p.phone, text, 'Напомнить') + telBtn(p.phone) : '<span class="pill">нет телефона в базе</span>'}
@@ -912,6 +922,10 @@ function bindBoard() {
   if (q) {
     q.oninput = () => { S.q = q.value; redrawBoard(); };
   }
+  const sq = $('#sq');
+  if (sq) sq.oninput = () => { SM.q = sq.value; redrawStudents(); };
+  const aq = $('#aq');
+  if (aq) aq.oninput = () => { AR.q = aq.value; AR.shown = 60; redrawArchive(); };
 }
 /** Перерисовать только доску (поиск, смена этапа) — с ползунком и сдвигом колонки в нужную сторону. */
 function redrawBoard(dir, smooth) {
@@ -1031,6 +1045,10 @@ function viewMore() {
   <section class="section"><div class="list">
     <div class="row"><div class="check on" style="background:var(--accent);border-color:var(--accent)">${ic('user', 2)}</div>
       <div class="main"><div class="title">${esc(d.me)}</div><div class="meta">${isMain() ? 'Главный менеджер: общие напоминания приходят вам' : 'Менеджер'}</div></div></div>
+  </div></section>
+
+  <section class="section"><div class="menu">
+    <button data-act="allTrials">${ic('trial')}<span>Архив пробных</span><small>итоги и конверсия</small></button>
   </div></section>
 
   <section class="section"><div class="section-h"><h2>Telegram-напоминания</h2></div><div class="list"><div class="row"><div class="main">
@@ -1239,7 +1257,10 @@ function leadSheet(id) {
         <div class="k">Телефон</div><div>${l.phone ? `<a href="${esc(telUrl(l.phone))}">${esc(prettyPhone(l.phone))}</a>` : '—'}</div>
         <div class="k">Кто пишет</div><div>${esc(l.contact || '—')}</div>
         <div class="k">Ответственный</div><div>${esc(l.owner || '—')}</div>
-        ${l.inBase ? `<div class="k">В Базе</div><div>${esc(l.inBase)}</div>` : ''}
+        ${l.inBase ? `<div class="k">В Базе</div><div>${(() => {
+          const m = l.inBase.match(/^(.+?), строка (\d+)$/);
+          return m ? `<a data-act="stOpen" data-teacher="${esc(m[1])}" data-name="${esc(l.name)}" data-row="${m[2]}">${esc(m[1])} · карточка ученика</a>` : esc(l.inBase);
+        })()}</div>` : ''}
         <div class="k">Создан</div><div>${esc(l.created ? dayLabel(l.created.slice(0, 10)) + ', ' + l.created.slice(11) : '—')}</div>
         ${l.lostReason ? `<div class="k">Причина отказа</div><div>${esc(l.lostReason)}</div>` : ''}
         ${l.comment ? `<div class="k">Комментарий</div><div style="white-space:pre-wrap">${esc(l.comment)}</div>` : ''}
@@ -1437,7 +1458,7 @@ function openEnroll(src) {
   const l = src.leadId ? leadById(src.leadId) : null;
   const tr = src.trial || (l && l.trialDate ? trialOfLead(l) : null);
   const init = {
-    teacher: (l && l.teacher) || (tr && tr.teacher) || '',
+    teacher: src.teacher || (l && l.teacher) || (tr && tr.teacher) || '',
     name: (l && l.name) || (tr && tr.name) || '',
     phone: (l && l.phone) || (tr && tr.phone) || '',
     grade: (l && l.grade) || (tr && tr.grade) || '',
@@ -1731,7 +1752,7 @@ const ACT = {
   tab(el) {
     const v = el.dataset.v;
     if (v === S.view) { window.scrollTo({ top: 0, behavior: reduced() ? 'auto' : 'smooth' }); return; }
-    const tabs = tabList();
+    const tabs = sideList();
     const dir = tabs.indexOf(v) > tabs.indexOf(S.view) ? 'left' : 'right';
     S.view = v;
     if (!S.as) lsSet(isTeacher() ? 'espada-tview' : 'espada-view', v);
@@ -1739,7 +1760,13 @@ const ACT = {
     render({ anim: dir });
     flash($('.tab.on svg'), 'pop');
   },
-  refresh() { load(); },
+  refresh() {
+    load();
+    if (S.view === 'students') smLoad(true);
+    if (S.view === 'trials') arLoad(true);
+  },
+  fabNew() { if (S.view === 'students') openEnroll({ teacher: SM.teacher }); else openLeadForm(); },
+  allTrials() { S.view = 'trials'; window.scrollTo(0, 0); render({ anim: 'left' }); },
   reload() { location.reload(); },
   close(el) { const sh = sheetOf(el); if (sh) sh.close(); },
   newLead() { openLeadForm(); },
@@ -1908,6 +1935,7 @@ const ACT = {
 };
 
 Object.assign(ACT, T_ACT); // действия кабинета преподавателя (teacher.js)
+Object.assign(ACT, ST_ACT); // ученики и архив пробных (students.js)
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');

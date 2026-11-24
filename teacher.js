@@ -125,8 +125,8 @@ function tLessonCard(day, l) {
   const kids = l.kids.map((k) => {
     const fz = tFrozen(day, k.name);
     const data = `data-date="${esc(day)}" data-name="${esc(k.name)}"`;
-    return `<div class="row kid ${fz ? 'frozen' : ''}">
-      <div class="main"><div class="title">${k.st ? `<a data-act="tStud" data-name="${esc(k.name)}">${esc(k.name)}</a>` : esc(k.name)}
+    return `<div class="row kid ${fz ? 'frozen' : ''} ${k.st ? 'tap' : ''}" ${k.st ? `data-act="tStud" data-name="${esc(k.name)}" data-row="${k.st.row}"` : ''}>
+      <div class="main"><div class="title">${esc(k.name)}
         ${k.grade ? `<span class="pill">${esc(gr(k.grade))}</span>` : ''}${k.onl ? '<span class="pill">онлайн</span>' : ''}
         ${fz ? `<span class="pill accent">${ic('snow', 2.2)}заморозка</span>` : ''}</div></div>
       ${can && k.st ? (fz
@@ -319,57 +319,17 @@ function tViewMore() {
 
 /* ============================== Ученик ============================== */
 
-function tStudentSheet(name, row) {
-  const s = (S.d.students || []).find((x) => x.name === name && (!row || x.row === row)) || tStudent(name);
-  if (!s) return sheetHead('Ученик') + `<div class="list">${emptyState('Ученик не найден — обновите данные')}</div>`;
-  const fz = (S.d.freezes || []).filter((f) => f.n === s.name).sort((a, b) => (a.d < b.d ? 1 : -1));
-  const key = `data-name="${esc(s.name)}" data-row="${s.row}"`;
-  const ddmm = (x) => (x ? x.split('-').reverse().join('.') : '—');
-  return sheetHead('') + `
-    <div class="lead-head s-trial">
-      <div class="ava" aria-hidden="true">${esc(s.name.trim()[0] || '?')}</div>
-      <div class="lh"><div class="nm">${esc(s.name)}</div>
-        <div class="info">${[/^\d+$/.test(s.grade) ? s.grade + ' класс' : s.grade, s.format, (s.onl || '').toLowerCase()].filter(Boolean).map(esc).join(' · ')}</div></div>
-    </div>
-    <div class="quick t3">
-      <button data-act="tPay" ${key}>${ic('wallet', 1.8)}Оплата</button>
-      <button data-act="tFreezeDay" ${key}>${ic('snow', 1.8)}Заморозка</button>
-      <button data-act="tEdit" ${key}>${ic('edit', 1.8)}Изменить</button>
-    </div>
-    <section class="section"><div class="section-h"><h2>Статус</h2></div>
-      <div class="seg t-status">${S.d.meta.statuses.map((v) => `<button type="button" class="chip-btn ${s.status === v ? 'on' : ''}" data-act="tStatus" ${key} data-v="${esc(v)}">${esc(v)}</button>`).join('')}</div></section>
-    <section class="section"><div class="section-h"><h2>Оплата</h2>${tPayPill(s)}</div><div class="list kv">
-      <div class="k">Цена абонемента</div><div>${s.price ? money(s.price) + ' сом' : '—'}</div>
-      <div class="k">Оплачено</div><div>${money(s.paid)} сом${s.debt > 0 ? ` · <span style="color:var(--red)">долг ${money(s.debt)}</span>` : ''}</div>
-      <div class="k">Дата оплаты</div><div>${esc(ddmm(s.payDate))}</div>
-      <div class="k">Следующая оплата</div><div>${esc(s.next ? ddmm(s.next) : s.nextText || '—')}</div>
-      <div class="k">Занятий в абонементе</div><div>${esc(s.lessons || '12')}</div>
-      <div class="k">Заморозки</div><div class="fz-count">
-        <button class="btn" data-act="tFrCount" ${key} data-v="-1" aria-label="Меньше" ${s.freezes ? '' : 'disabled'}>−</button>
-        <b>${s.freezes}</b> ${plural(s.freezes, ['занятие', 'занятия', 'занятий'])}
-        <button class="btn" data-act="tFrCount" ${key} data-v="1" aria-label="Больше">+</button></div>
-    </div></section>
-    ${fz.length ? tSec('Замороженные дни', fz.length, `<div class="list"><div class="att-hist">${fz.map((f) => `<span class="ah fz">${ic('snow', 2.2)}${esc(dayLabel(f.d))}${f.k > 1 ? ' ×' + f.k : ''}
-      ${tCanFreeze(f.d) ? `<button data-act="tFreeze" data-date="${esc(f.d)}" data-name="${esc(s.name)}" data-on="0" aria-label="Снять заморозку">${ic('x', 2.6)}</button>` : ''}</span>`).join('')}</div></div>`) : ''}
-    <section class="section"><div class="section-h"><h2>Занятия</h2></div><div class="list kv">
-      <div class="k">Дни и время</div><div>${esc([s.days, s.time].filter(Boolean).join(' в ') || '—')}</div>
-      <div class="k">ЗП за неделю</div><div>${s.zp ? `${money(s.zp)} сом${s.zpLessons ? ` · ${s.zpLessons} ${plural(s.zpLessons, ['урок', 'урока', 'уроков'])}` : ''}` : '—'}</div>
-      ${s.phone ? `<div class="k">Телефон</div><div>${esc(prettyPhone(s.phone))}</div>` : ''}
-      ${s.comment ? `<div class="k">Комментарий</div><div style="white-space:pre-wrap">${esc(s.comment)}</div>` : ''}
-    </div></section>
-    <div class="sheet-foot"><button class="btn lg" data-act="tMsg" data-student="${esc(s.name)}">${ic('send', 2)}Сообщить менеджеру</button></div>`;
-}
-
 /** Полная запись ученика для сервера (сервер перезаписывает все ручные столбцы строки). */
 const tPayload = (s, patch = {}) => ({
   row: s.row, orig: s.name, name: s.name, phone: s.phone, grade: s.grade, format: s.format, onl: s.onl, days: s.days, time: s.time,
   price: s.price || '', paid: s.paid || '', payDate: s.payDate, freezes: s.freezes || '', status: s.status, comment: s.comment,
   lessons: /^\d+$/.test(String(s.lessons)) ? s.lessons : '', ...patch,
 });
-const tFind = (el) => (S.d.students || []).find((x) => x.name === el.dataset.name && String(x.row) === String(el.dataset.row));
+const tFind = (el) => stFind(el); // карточка общая с менеджером (students.js)
 
 function tOpenForm(s) {
-  const m = S.d.meta;
+  const ctx = stCtx(s && s.teacher);
+  const m = ctx.meta;
   const v = s || { format: 'Группа', onl: 'Офлайн', status: 'Учится', price: m.prices['Группа'] || '', payDate: todayS() };
   openSheet(() => sheetHead(s ? 'Изменить ученика' : 'Новый ученик') + `
     <form id="tForm" autocomplete="off">
@@ -387,7 +347,7 @@ function tOpenForm(s) {
       <div class="field"><label for="tf-les">Занятий в абонементе</label><input class="input" id="tf-les" name="lessons" type="number" inputmode="numeric" value="${esc(/^\d+$/.test(String(v.lessons || '')) ? v.lessons : '')}" placeholder="12"></div>
       <div class="field"><span class="lbl">Статус</span><div class="seg">${radios('status', m.statuses, v.status || 'Учится')}</div></div>
       <div class="field"><label for="tf-comment">Комментарий</label><input class="input" id="tf-comment" name="comment" value="${esc(v.comment || '')}" placeholder="Необязательно"></div>
-      <p class="hint">${s ? 'Изменения сразу запишутся в вашу строку в «Базе учеников».' : 'Ученик появится в «Базе учеников» и в вашем расписании в течение минуты. Менеджер получит сообщение.'}</p>
+      <p class="hint">${ctx.mgr ? `Изменения сразу запишутся в строку на листе «${esc(ctx.teacher)}» в «Базе учеников».` : s ? 'Изменения сразу запишутся в вашу строку в «Базе учеников».' : 'Ученик появится в «Базе учеников» и в вашем расписании в течение минуты. Менеджер получит сообщение.'}</p>
       <div class="sheet-foot"><button class="btn primary lg" type="submit">${s ? 'Сохранить' : 'Добавить в Базу'}</button></div>
     </form>`, {
     after: (sh) => {
@@ -411,7 +371,7 @@ function tOpenForm(s) {
         const b = $('button[type=submit]', f);
         b.disabled = true; b.textContent = 'Записываю в Базу…';
         try {
-          const r = await tRun('tStudent', { student, force: !!force });
+          const r = await ctx.run('tStudent', { student, force: !!force });
           if (r.duplicate) {
             b.disabled = false; b.textContent = s ? 'Сохранить' : 'Добавить в Базу';
             if (confirm(`У вас уже есть «${student.name}». Это другой ученик? Добавить всё равно?`)) send(true);
@@ -427,6 +387,7 @@ function tOpenForm(s) {
 }
 
 function tOpenPay(s) {
+  const ctx = stCtx(s.teacher);
   const mode0 = s.debt > 0 ? 'add' : 'renew';
   openSheet(() => sheetHead('Оплата') + `<p class="hint" style="margin-top:0">${esc(s.name)} · ${esc([s.format, s.days, s.time].filter(Boolean).join(' · '))}</p>
     <div class="list kv">
@@ -460,11 +421,11 @@ function tOpenPay(s) {
         if (!(Number(amount.value) > 0)) return toast('Укажите сумму', { err: true });
         b.disabled = true; b.textContent = 'Записываю…';
         try {
-          const r = await tRun('tPay', { name: s.name, row: s.row, mode, amount: amount.value, date: $('#tp-date', p).value });
+          const r = await ctx.run('tPay', { name: s.name, row: s.row, mode, amount: amount.value, date: $('#tp-date', p).value });
           sh.close();
           toast(`Оплата ${money(amount.value)} сом записана`, {
             action: 'Отменить',
-            onAction: () => tRun('tUndoPay', { id: r.payment.id }).then(() => toast('Оплата отменена')).catch(() => {}),
+            onAction: () => ctx.run('tUndoPay', { id: r.payment.id }).then(() => toast('Оплата отменена')).catch(() => {}),
           });
         } catch { b.disabled = false; b.textContent = 'Записать оплату'; }
       };
@@ -511,10 +472,12 @@ function tOpenCorr() {
 
 /** Заморозить ученика на выбранный день (из карточки ученика). */
 function tOpenFreezeDay(s) {
-  const pat = (S.d.meta.patterns || {})[s.days] || [];
+  const ctx = stCtx(s.teacher);
+  const fz = stFreezes(ctx, s.name);
+  const pat = (ctx.meta.patterns || {})[s.days] || [];
   const next = [...Array(14)].map((_, i) => addDays(todayS(), i)).filter((d) => pat[parseD(d).getDay()]).slice(0, 6);
   openSheet(() => sheetHead('Заморозка на день') + `<p class="hint" style="margin-top:0">${esc(s.name)} · ${esc([s.days, s.time].filter(Boolean).join(' в '))}</p>
-    ${next.length ? `<div class="field"><span class="lbl">Ближайшие занятия</span><div class="chips">${next.map((d) => `<button type="button" class="chip-btn ${tFrozen(d, s.name) ? 'on' : ''}" data-d="${d}">${esc(dayLabel(d))}</button>`).join('')}</div></div>` : ''}
+    ${next.length ? `<div class="field"><span class="lbl">Ближайшие занятия</span><div class="chips">${next.map((d) => `<button type="button" class="chip-btn ${fz.some((f) => f.d === d) ? 'on' : ''}" data-d="${d}">${esc(dayLabel(d))}</button>`).join('')}</div></div>` : ''}
     <div class="field"><label for="tz-date">Или другой день</label><input class="input" id="tz-date" type="date" value="${next[0] || todayS()}"></div>
     <p class="hint">Урок этого дня не пойдёт в ЗП «за уроки», а дата следующей оплаты сдвинется на одно занятие. Снять заморозку можно в карточке ученика или в расписании.</p>
     <div class="sheet-foot"><button class="btn primary lg" id="tzBtn">${ic('snow', 2)}Заморозить</button></div>`, {
@@ -526,7 +489,7 @@ function tOpenFreezeDay(s) {
         const d = $('#tz-date', p).value;
         if (!d) return toast('Выберите день', { err: true });
         sh.close();
-        tSetFreeze(d, [s.name], true);
+        tSetFreeze(d, [s.name], true, false, ctx.teacher);
       };
     },
   });
@@ -615,6 +578,7 @@ async function tRun(action, payload, optimistic) {
     const r = await call(action, { ...payload, as: S.as || undefined });
     (r.trials || []).forEach((t) => upsert(S.d.trials, t, 'row'));
     ['students', 'freezes', 'grid', 'zp'].forEach((k) => { if (r[k]) S.d[k] = r[k]; });
+    stForget();
     if (!S.as) lsSet(cacheKey(), JSON.stringify(S.d));
     render(); rerenderSheets();
     return r;
@@ -628,8 +592,9 @@ async function tRun(action, payload, optimistic) {
 }
 
 /** Заморозить или снять заморозку на день. */
-function tSetFreeze(date, names, on, quiet) {
-  return tRun('tFreeze', { date, names, on }, () => {
+function tSetFreeze(date, names, on, quiet, teacher) {
+  const ctx = stCtx(teacher);
+  return ctx.run('tFreeze', { date, names, on }, ctx.mgr ? null : () => {
     names.forEach((n) => {
       S.d.freezes = S.d.freezes.filter((f) => !(f.d === date && f.n === n));
       if (on) S.d.freezes.push({ d: date, n, k: 1 });
@@ -639,7 +604,7 @@ function tSetFreeze(date, names, on, quiet) {
     if (quiet || !r.done.length) return;
     const who = r.done.length > 1 ? `${r.done.length} ${plural(r.done.length, ['ученик', 'ученика', 'учеников'])}` : r.done[0];
     toast(on ? `${who}: заморозка на ${dayLabel(date)}` : `${who}: заморозка снята`,
-      { action: 'Отменить', onAction: () => tSetFreeze(date, r.done, !on, true).catch(() => {}) });
+      { action: 'Отменить', onAction: () => tSetFreeze(date, r.done, !on, true, teacher).catch(() => {}) });
   }).catch(() => {});
 }
 
@@ -656,7 +621,7 @@ function tSetResult(x, v) {
 }
 
 function tSaveStudent(s, patch, msg) {
-  return tRun('tStudent', { student: tPayload(s, patch) }, () => Object.assign(s, patch))
+  return stCtx(s.teacher).run('tStudent', { student: tPayload(s, patch) }, () => Object.assign(s, patch))
     .then(() => { if (msg) toast(msg); }).catch(() => {});
 }
 
@@ -708,8 +673,8 @@ const T_ACT = {
     render({ anim: n > 0 ? 'left' : 'right' });
   },
   tFreeze(el) {
-    const { date, name, on } = el.dataset;
-    tSetFreeze(date, [name], on === '1');
+    const { date, name, on, teacher } = el.dataset;
+    tSetFreeze(date, [name], on === '1', false, teacher);
   },
   tLessonMenu(el) {
     const { date, time } = el.dataset;
@@ -749,10 +714,7 @@ const T_ACT = {
     pick('Изменить итог', RESULTS.map((r) => ({ label: r, cur: r === x.result, onPick: () => { if (r !== x.result) tSetResult(x, r); } })));
   },
   tNote(el) { tOpenNote(Number(el.dataset.row)); },
-  tStud(el) {
-    const name = el.dataset.name, row = Number(el.dataset.row) || 0;
-    openSheet(() => tStudentSheet(name, row), { live: true });
-  },
+  tStud(el) { stOpen(el.dataset.teacher, el.dataset.name, Number(el.dataset.row) || 0); },
   tNewStudent() { tOpenForm(null); },
   tCorr() { tOpenCorr(); },
   tEdit(el) { const s = tFind(el); if (s) tOpenForm(s); },

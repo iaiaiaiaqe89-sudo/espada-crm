@@ -85,7 +85,28 @@ const Demo = (() => {
     if (db) return db;
     try { db = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { db = null; }
     if (!db) { db = seed(); save(); }
+    if (!db.archV) { addHistory(db); save(); }
     return db;
+  }
+  /** Пробные за прошлые месяцы — чтобы в архиве была статистика. */
+  function addHistory(d) {
+    const names = ['Алима', 'Айдай', 'Мээрим', 'Тимур', 'Сайкал', 'Аслан', 'Эмир', 'Айбек', 'Жибек', 'Сабина', 'Улан', 'Бекзат', 'Айгерим', 'Дильназ',
+      'Арген', 'Нуржан', 'Асель', 'Самира', 'Эрлан', 'Аяна', 'Байэл', 'Аида', 'Мирас', 'Нурсултан', 'Адель', 'Каныкей', 'Элдос', 'Ариет'];
+    const res = ['Записался', 'Записался', 'Отказ', 'Думает', 'Записался', 'Не пришёл', 'Записался', 'Перенос', 'Отказ', 'Записался'];
+    const notes = ['Преп.: уверенно решает уравнения, подтянуть геометрию', 'Преп.: стеснялся, но к концу разговорился', '', 'Дорого, подумают',
+      'Преп.: сильный, можно в олимпиадную группу', '', 'Преп.: пробелы с 5 класса — дроби, проценты', '', 'Далеко ездить', ''];
+    const times = ['15:00', '16:00', '17:00', '18:00', '19:00'];
+    let row = Math.max(...d.trials.map((t) => t.row)) + 1;
+    for (let i = 0; i < 46; i++) {
+      const ago = 6 + Math.round(i * 2.6);
+      const teacher = TEACHERS[(i * 5) % TEACHERS.length];
+      const k = i < 7 ? i : -1; // первые — ученики Артура из «Базы»
+      d.trials.push({ row: row++, date: day(-ago), time: times[i % times.length], teacher: k >= 0 ? 'Артур' : teacher,
+        name: k >= 0 ? names[i] : names[(i * 3) % names.length], grade: String(5 + (i % 7)),
+        phone: k >= 0 ? '07000004' + p2([0, 2, 4, 11, 5, 8, 6][i]) : '0700005' + p2(i) + '0', format: i % 3 ? 'Офлайн' : 'Онлайн',
+        result: k >= 0 ? 'Записался' : res[i % res.length], who: i % 4 ? 'Алтынай' : 'Билал', comment: notes[i % notes.length] });
+    }
+    d.archV = 1;
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* ничего */ } }
   const lbl = (l) => (l.name || 'Без имени') + (l.grade ? `, ${l.grade} кл` : '');
@@ -336,14 +357,24 @@ const Demo = (() => {
     s.zp = s.zpLessons * (RATES[s.format] || 0);
     return s;
   }
+  const POOL = ['Айбек', 'Нурай', 'Эльдар', 'Жибек', 'Сабина', 'Улан', 'Бекзат', 'Айгерим', 'Дильназ', 'Арген', 'Камила', 'Нуржан', 'Асель',
+    'Аружан', 'Медина', 'Самира', 'Эрлан', 'Аяна', 'Байэл', 'Нурсултан', 'Аида', 'Мирас', 'Адель', 'Каныкей'];
   function cab(name) {
     db.cab = db.cab || {};
-    if (db.cab[name] && db.cab[name].v === 2) return db.cab[name];
-    const students = KIDS.map(([n, g, f, o, d, t, price, paid, pd, fr], i) => ({ row: i + 4, name: n, phone: '07000004' + p2(i), grade: g, format: f, onl: o,
+    if (db.cab[name] && db.cab[name].v === 3) return db.cab[name];
+    const ti = Math.max(0, TEACHERS.indexOf(name));
+    const kids = KIDS.map((k, j) => (ti ? [POOL[(ti * 5 + j) % POOL.length], ...k.slice(1)] : k)).slice(0, KIDS.length - ti);
+    const students = kids.map(([n, g, f, o, d, t, price, paid, pd, fr], i) => ({ row: i + 4, name: n, phone: '070' + ti + '0004' + p2(i), grade: g, format: f, onl: o,
       days: d, time: t, price, paid, payDate: day(pd), freezes: fr, status: 'Учится', comment: n === 'Айдай' ? 'Перевелась в группу с индивидуальных' : '', lessons: '' }));
-    students.push({ row: 17, name: 'София', phone: '', grade: '3', format: 'Пара', onl: 'Онлайн', days: 'Пн-Ср-Пт', time: '19:00', price: 8000, paid: 8000,
-      payDate: day(-60), freezes: 0, status: 'Выбыл', comment: '', lessons: '' });
-    const c = { v: 2, students, freezes: [], pays: {} };
+    (db.payments || []).filter((p) => p.teacher === name && !students.some((s) => s.name === p.name)).forEach((p) => {
+      const debt = p.status === 'Долг';
+      students.push({ row: students.length + 4, name: p.name, phone: p.phone, grade: '7', format: 'Группа', onl: 'Офлайн', days: 'Пн-Ср-Пт', time: '18:00',
+        price: 6000, paid: debt ? 6000 - Number(String(p.debt).replace(/\D/g, '')) : 6000, payDate: day(debt ? -10 : -26), freezes: 0, status: 'Учится', comment: '', lessons: '' });
+    });
+    if (ti % 2 === 0) students.push({ row: students.length + 4, name: ti ? POOL[(ti * 5 + 20) % POOL.length] : 'София', phone: '', grade: '3', format: 'Пара', onl: 'Онлайн',
+      days: 'Пн-Ср-Пт', time: '19:00', price: 8000, paid: 8000, payDate: day(-60), freezes: 0, status: 'Выбыл', comment: '', lessons: '' });
+    if (ti === 2) students[3].status = 'Заморозка';
+    const c = { v: 3, students, freezes: [], pays: {}, hist: [] };
     const nextFri = [...Array(7)].map((_, i) => day(i + 1)).find((d) => dowOf(d) === 5);
     c.freezes.push({ d: nextFri, n: 'Аслан', k: 1 });
     db.cab[name] = c;
@@ -386,16 +417,17 @@ const Demo = (() => {
     if (!s) throw new Error('Строки в «Базе» сдвинулись — обновите страницу');
     return s;
   };
+  const META = () => ({ days: Object.keys(PATTERNS), patterns: PATTERNS, prices: { 'Группа': 6000, 'Пара': 8000, 'Инд': 12000 }, formats: ['Группа', 'Пара', 'Инд'],
+    statuses: ['Учится', 'Заморозка', 'Выбыл'], types: ['Гр. есть места', 'Гр. полная', 'Пара', 'Инд', 'Свободно', 'Не работает'],
+    from: ['выходной', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'],
+    to: ['11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'] });
   Object.assign(A, {
     tBootstrap: (r) => {
       const c = cab(r.as);
       return {
         role: 'teacher', me: r.as, preview: true, main: 'Алтынай', today: day(0), results: [],
         grid: grid(c), students: students(c), freezes: c.freezes, zp: zp(c, r.as),
-        meta: { days: Object.keys(PATTERNS), patterns: PATTERNS, prices: { 'Группа': 6000, 'Пара': 8000, 'Инд': 12000 }, formats: ['Группа', 'Пара', 'Инд'],
-          statuses: ['Учится', 'Заморозка', 'Выбыл'], types: ['Гр. есть места', 'Гр. полная', 'Пара', 'Инд', 'Свободно', 'Не работает'],
-          from: ['выходной', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'],
-          to: ['11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'] },
+        meta: META(),
         trials: db.trials.filter((t) => t.teacher === r.as).map(tTrial),
         telegram: { bot: 'espada_demo_bot', linked: r.as === 'Артур', link: 'https://t.me/espada_demo_bot' },
       };
@@ -433,6 +465,7 @@ const Demo = (() => {
       const s = studentOf(c, r);
       const id = 'p' + Date.now();
       c.pays[id] = { name: s.name, row: s.row, payDate: s.payDate, paid: s.paid, freezes: s.freezes };
+      (c.hist = c.hist || []).push({ id, name: s.name, at: dtS(new Date()), who: 'Алтынай', type: r.mode === 'renew' ? 'Новый абонемент' : 'Доплата', sum: Number(r.amount), undone: false });
       if (r.mode === 'renew') Object.assign(s, { payDate: r.date || day(0), paid: Number(r.amount), freezes: 0 });
       else s.paid += Number(r.amount);
       return { payment: { id }, students: students(c) };
@@ -443,6 +476,7 @@ const Demo = (() => {
       if (!p) throw new Error('Запись об оплате не найдена');
       Object.assign(studentOf(c, p), { payDate: p.payDate, paid: p.paid, freezes: p.freezes });
       delete c.pays[r.id];
+      (c.hist || []).forEach((h) => { if (h.id === r.id) h.undone = true; });
       return { students: students(c) };
     },
     tFreeze: (r) => {
@@ -482,6 +516,35 @@ const Demo = (() => {
       if (amount && !String(r.comment || '').trim()) throw new Error('Напишите, за что корректировка');
       c.corr = { amount, comment: String(r.comment || '').trim() };
       return { zp: zp(c, r.as) };
+    },
+    students: () => ({ students: TEACHERS.flatMap((t) => students(cab(t)).map((s) => ({ ...s, teacher: t }))), meta: { ...META(), teachers: TEACHERS } }),
+    tCard: (r) => {
+      const c = cab(r.as);
+      const raw = c.students.find((x) => x.name === r.name && (!r.row || x.row === Number(r.row))) || c.students.find((x) => x.name === r.name);
+      if (!raw) throw new Error(`«${r.name}» нет на листе «${r.as}» — обновите страницу`);
+      const s = { ...calc(c, raw), teacher: r.as };
+      const p = norm(s.phone);
+      const trials = db.trials.filter((t) => (p.length >= 11 && norm(t.phone) === p) || (t.name === s.name && t.teacher === r.as))
+        .map((t) => ({ row: t.row, date: t.date, time: t.time, teacher: t.teacher, name: t.name, grade: t.grade, format: t.format, result: t.result, comment: t.comment }));
+      const pays = [];
+      if (s.payDate && s.paid) {
+        pays.push({ id: 'h1', at: addD(s.payDate, -28) + 'T15:10', who: 'Билал', type: 'Новый абонемент', sum: s.price || s.paid, undone: false });
+        pays.push({ id: 'h2', at: s.payDate + 'T16:40', who: s.row % 3 ? 'Алтынай' : r.as + ' (преп.)', type: 'Новый абонемент', sum: s.paid, undone: false });
+      }
+      (c.hist || []).filter((h) => h.name === s.name).forEach((h) => pays.push(h));
+      const tr = trials[0];
+      const lead = db.leads.find((l) => p.length >= 11 && norm(l.phone) === p)
+        || (tr ? { source: ['Instagram', 'Посоветовали', '2ГИС', 'Реклама'][s.row % 4], contact: ['мама', 'папа', 'мама Айгуль', ''][s.row % 4], created: addD(tr.date, -4) + 'T11:20', owner: 'Алтынай' } : null);
+      return { student: s, payments: pays, freezes: c.freezes.filter((f) => f.n === s.name).map((f) => ({ d: f.d, k: f.k, who: r.as + ' (преп.)' })),
+        trials, lead: lead ? { id: lead.id, source: lead.source, contact: lead.contact, created: lead.created, owner: lead.owner, stage: lead.stage } : null };
+    },
+    trialArchive: () => {
+      const all = TEACHERS.flatMap((t) => cab(t).students.map((s) => ({ ...s, teacher: t })));
+      return { trials: db.trials.map((t) => {
+        const p = norm(t.phone);
+        const b = all.find((s) => p.length >= 11 && norm(s.phone) === p) || all.find((s) => s.teacher === t.teacher && s.name.toLowerCase() === (t.name || '').toLowerCase());
+        return { ...t, base: b ? { teacher: b.teacher, name: b.name, status: b.status } : null };
+      }) };
     },
     tMsg: (r) => {
       addTask({ title: `От ${r.as}: ${r.text}`, leadName: r.student ? `${r.student} (${r.as})` : '', due: soon(), author: r.as + ' (преп.)' });
