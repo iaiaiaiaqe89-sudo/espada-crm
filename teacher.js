@@ -11,7 +11,7 @@ const T_TITLES = { tday: 'Расписание', ttrial: 'Пробные', tstud
 const T_TAB_IC = { tday: 'today', ttrial: 'trial', tstud: 'users', tzp: 'wallet', tmore: 'more' };
 const T_PAY = { 'Оплачено': 'green', 'Продлить': 'amber', 'Закончился': 'red', 'Долг': 'red', 'Заморозка': 'accent' };
 const T_HOURS = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'];
-const TS = { day: '', gone: false };
+const TS = { day: '', gone: false, q: '' };
 
 const isTeacher = () => !!(S.d && S.d.role === 'teacher');
 
@@ -147,11 +147,11 @@ function tTrialCard(x, o = {}) {
   const started = tStarted(x.date, x.time);
   let acts = '';
   if (x.result) {
-    acts = `<div class="actions"><span class="pill ${x.result === 'Записался' ? 'green' : x.result === 'Отказ' || x.result === 'Не пришёл' ? 'red' : 'amber'}">Итог: ${esc(x.result)}</span>
-      ${x.mine ? `<button class="btn ghost" data-act="tResMenu" data-row="${x.row}">Изменить</button>` : ''}
-      ${x.result !== 'Перенос' && x.result !== 'Не пришёл' ? `<button class="btn" data-act="tNote" data-row="${x.row}">${ic('edit', 2)}Отзыв о ребёнке</button>` : ''}</div>`;
+    const btns = (x.mine ? `<button class="btn" data-act="tResMenu" data-row="${x.row}">Изменить итог</button>` : '')
+      + (x.result !== 'Перенос' && x.result !== 'Не пришёл' ? `<button class="btn" data-act="tNote" data-row="${x.row}">${ic('edit', 2)}Отзыв</button>` : '');
+    if (btns) acts = `<div class="actions">${btns}</div>`;
   } else if (started) {
-    acts = `<div class="actions">${RESULTS.map((r) => `<button class="btn ${r === 'Записался' ? 'ok' : r === 'Отказ' ? 'danger' : ''}" data-act="tRes" data-row="${x.row}" data-v="${esc(r)}">${esc(r)}</button>`).join('')}</div>`;
+    acts = `<div class="actions t-res">${RESULTS.map((r) => `<button class="btn ${r === 'Записался' ? 'ok' : r === 'Отказ' ? 'danger' : ''}" data-act="tRes" data-row="${x.row}" data-v="${esc(r)}">${esc(r)}</button>`).join('')}</div>`;
   }
   const when = o.date ? `${dayLabel(x.date)}, ${x.time}` : '';
   const need = !x.result && started;
@@ -159,7 +159,8 @@ function tTrialCard(x, o = {}) {
     <div class="row">
       <div class="time-col">${o.date ? '' : esc(x.time)}</div>
       <div class="main">
-        <div class="title"><span class="pill ${need ? 'red' : 'amber'}">${need ? 'Пробный: итог?' : 'Пробный'}</span> ${x.name ? esc(x.name) : NONAME} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
+        <div class="title">${x.result ? `<span class="pill ${x.result === 'Записался' ? 'green' : x.result === 'Отказ' || x.result === 'Не пришёл' ? 'red' : 'amber'}">${esc(x.result)}</span>`
+          : `<span class="pill ${need ? 'red' : 'amber'}">${need ? 'Пробный: итог?' : 'Пробный'}</span>`} ${x.name ? esc(x.name) : NONAME} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
         <div class="meta">${[when, (x.format || '').toLowerCase()].filter(Boolean).map(esc).join(' · ')}</div>
         ${x.comment ? `<div class="t-note">${esc(x.comment)}</div>` : ''}
         ${acts}
@@ -180,7 +181,7 @@ function tViewTrials() {
   const stats = `<div class="hello">
     ${tStat(need.length, ['ждёт итога', 'ждут итога', 'ждут итога'], need.length)}
     ${tStat(next.length, 'впереди')}
-    ${tStat(month.length, ['пробный за месяц', 'пробных за месяц', 'пробных за месяц'])}
+    ${tStat(month.length, 'за месяц')}
     ${tStat(pct, 'записались')}
   </div>`;
   const card = (x) => tTrialCard(x, { date: true });
@@ -206,31 +207,44 @@ function tStudentRow(s) {
 }
 
 function tViewStudents() {
-  const all = (S.d.students || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  const act = all.filter((s) => s.status === 'Учится');
-  const frozen = all.filter((s) => s.status === 'Заморозка');
-  const gone = all.filter((s) => s.status === 'Выбыл');
-  const live = act.concat(frozen);
+  return tStudStats() + `<div class="toolbar">
+      <label class="search">${ic('search')}<input id="tsq" type="search" placeholder="Имя или телефон" value="${esc(TS.q)}" autocomplete="off"></label>
+      <button class="toggle" data-act="tNewStudent">+ Ученик</button>
+    </div><div id="tsWrap">${tStudList()}</div>`
+    + '<p class="hint">Всё, что вы меняете здесь, сразу записывается в ваш лист «Базы учеников». Дата следующей оплаты, долг и статус оплаты считаются там сами. О новых учениках, сменах статуса и оплатах менеджер получает сообщение.</p>';
+}
+function tStudStats() {
+  const live = (S.d.students || []).filter((s) => s.status !== 'Выбыл');
   const paid = live.filter((s) => s.payStatus === 'Оплачено').length;
   const renew = live.filter((s) => s.payStatus === 'Продлить' || s.payStatus === 'Закончился').length;
   const debt = live.reduce((n, s) => n + (s.debt > 0 ? s.debt : 0), 0);
-  const due = live.filter((s) => ['Закончился', 'Продлить', 'Долг'].includes(s.payStatus) || s.debt > 0);
-  const stats = `<div class="hello">
+  return `<div class="hello">
     ${tStat(live.length, ['учится', 'учатся', 'учатся'])}
     ${tStat(paid, ['оплатил', 'оплатили', 'оплатили'])}
     ${tStat(renew, 'продлить', renew)}
     ${tStat(money(debt), 'долг, сом', debt, 'sm')}
   </div>`;
+}
+function tStudList() {
+  const q = TS.q.trim().toLowerCase(), qd = q.replace(/\D/g, '');
   const list = (items, empty) => `<div class="list">${items.length ? items.map(tStudentRow).join('') : emptyState(empty, 'user')}</div>`;
-  return stats
-    + `<div class="toolbar"><div style="flex:1"></div><button class="toggle" data-act="tNewStudent">+ Новый ученик</button></div>`
-    + `<div class="t-cols t-stud"><div>${tSec('Учатся', act.length, list(act, 'Пока никого — добавьте первого ученика'))}</div><div>`
+  if (q) {
+    const found = (S.d.students || []).filter((s) => s.name.toLowerCase().includes(q) || (qd.length >= 3 && normPhone(s.phone).includes(qd.replace(/^0/, ''))))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    return tSec('Найдено', found.length || null, found.length ? list(found, '') : `<div class="list">${emptyState(`Никого не нашлось по «${TS.q.trim()}»`, 'search')}</div>`);
+  }
+  const all = (S.d.students || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  const act = all.filter((s) => s.status === 'Учится');
+  const frozen = all.filter((s) => s.status === 'Заморозка');
+  const gone = all.filter((s) => s.status === 'Выбыл');
+  const live = act.concat(frozen);
+  const due = live.filter((s) => ['Закончился', 'Продлить', 'Долг'].includes(s.payStatus) || s.debt > 0);
+  return `<div class="t-cols t-stud"><div>${tSec('Учатся', act.length, list(act, 'Пока никого — добавьте первого ученика'))}</div><div>`
     + `<div class="desk-only">${tSec('Продлить и долги', due.length || null, list(due, 'Все оплатили'))}</div>`
     + (frozen.length ? tSec('Заморозка', frozen.length, list(frozen, '')) : '')
     + (gone.length ? `<section class="section"><button class="more-btn t-gone" data-act="tGone">${TS.gone ? 'Скрыть выбывших' : `Выбывшие · ${gone.length}`}${ic('chev', 2.4)}</button>
       ${TS.gone ? `<div style="margin-top:8px">${list(gone, '')}</div>` : ''}</section>` : '')
-    + '</div></div>'
-    + '<p class="hint">Всё, что вы меняете здесь, сразу записывается в ваш лист «Базы учеников». Дата следующей оплаты, долг и статус оплаты считаются там сами. О новых учениках, сменах статуса и оплатах менеджер получает сообщение.</p>';
+    + '</div></div>';
 }
 
 function tViewZp() {

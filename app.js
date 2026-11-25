@@ -142,9 +142,6 @@ const ic = (n, sw = 1.9) => `<svg viewBox="0 0 24 24" fill="none" stroke="curren
 
 /* ============================== Константы ============================== */
 
-const STAGES = ['Новый', 'В диалоге', 'Пробный', 'После пробного', 'Записался', 'Отказ'];
-const ACTIVE = STAGES.slice(0, 4);
-const STAGE_CLS = { 'Новый': 's-new', 'В диалоге': 's-talk', 'Пробный': 's-trial', 'После пробного': 's-after', 'Записался': 's-won', 'Отказ': 's-lost' };
 const RESULTS = ['Записался', 'Думает', 'Перенос', 'Не пришёл', 'Отказ'];
 const GRADES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
 const TASK_IDEAS = ['Позвонить', 'Написать в WhatsApp', 'Напомнить об оплате', 'Отправить расписание', 'Назначить пробный'];
@@ -188,10 +185,7 @@ async function call(action, payload = {}) {
 const S = {
   d: null,
   view: lsGet('espada-view') || 'today',
-  stage: 'Новый',
-  mine: false,
   allTasks: false,
-  q: '',
   busy: 0,
   loadedAt: 0,
   slots: {},
@@ -210,13 +204,17 @@ function merge(r) {
   if (!r || !S.d) return;
   if (r.removed) {
     const rm = r.removed;
-    if (rm.leads) S.d.leads = S.d.leads.filter((l) => !rm.leads.includes(l.id));
     if (rm.tasks) S.d.tasks = S.d.tasks.filter((t) => !rm.tasks.includes(t.id));
-    if (rm.trials) S.d.trials = S.d.trials.filter((t) => !rm.trials.includes(t.row));
+    if (rm.trials) {
+      S.d.trials = S.d.trials.filter((t) => !rm.trials.includes(t.row));
+      if (typeof AR !== 'undefined' && AR.list) AR.list = AR.list.filter((t) => !rm.trials.includes(t.row));
+    }
   }
-  (r.leads || []).forEach((l) => upsert(S.d.leads, l, 'id'));
   (r.tasks || []).forEach((t) => upsert(S.d.tasks, t, 'id'));
-  (r.trials || []).forEach((t) => upsert(S.d.trials, t, 'row'));
+  (r.trials || []).forEach((t) => {
+    upsert(S.d.trials, t, 'row');
+    if (typeof AR !== 'undefined' && AR.list) upsert(AR.list, t, 'row');
+  });
   S.d.tasks = S.d.tasks.filter((t) => !String(t.id).startsWith('tmp-'));
   lsSet(cacheKey(), JSON.stringify(S.d));
   render();
@@ -251,7 +249,7 @@ async function run(action, payload, optimistic) {
   try {
     const r = await call(action, payload);
     merge(r);
-    if (['enroll', 'recordPayment', 'undoPayment', 'setTrialResult', 'deleteTrial', 'bookTrial'].includes(action)) stDirty();
+    if (['enroll', 'recordPayment', 'undoPayment', 'setTrialResult', 'deleteTrial', 'bookTrial', 'editTrial'].includes(action)) stDirty();
     return r;
   } catch (e) {
     if (snap) { S.d = JSON.parse(snap); render(); rerenderSheets(); }
@@ -266,21 +264,26 @@ async function run(action, payload, optimistic) {
 
 const me = () => S.d.me;
 const isMain = () => S.d.me === S.d.main;
-const leadById = (id) => S.d.leads.find((l) => l.id === id);
-const leadByPhone = (p) => {
-  const n = normPhone(p);
-  return n.length >= 11 ? S.d.leads.filter((l) => normPhone(l.phone) === n).sort((a, b) => (a.updated < b.updated ? 1 : -1))[0] : null;
+const parseTrialRef = (ref) => {
+  const m = String(ref || '').match(/^tr:(\d+)(?::(.*))?$/);
+  return m ? { row: Number(m[1]), phone: m[2] || '' } : null;
+};
+const trialLabel = (t) => (t.name || prettyPhone(t.phone) || 'Без имени') + (t.grade ? `, ${gr(t.grade)}` : '');
+const trialByRow = (row) => {
+  const r = Number(row);
+  return (typeof AR !== 'undefined' && AR.list && AR.list.find((x) => x.row === r))
+    || (S.d && S.d.trials && S.d.trials.find((x) => x.row === r)) || null;
 };
 const byDue = (a, b) => ((a.due || '9') < (b.due || '9') ? -1 : 1);
 /** Служебные записи — отменённые отметки «Напомнили» — в списках задач не показываем. */
 const isJunk = (t) => String(t.key || '').startsWith('x|') || /^\(отменено\) /.test(t.title || '');
 const openTasks = () => S.d.tasks.filter((t) => !t.done && !t.key && !isJunk(t));
 const myTask = (t) => t.owner === me() || (!t.owner && isMain());
-const leadTasks = (id) => openTasks().filter((t) => t.leadId === id).sort(byDue);
-const nextTask = (id) => leadTasks(id)[0];
+const trialTasks = (row) => openTasks().filter((t) => {
+  const r = parseTrialRef(t.leadId);
+  return r && r.row === Number(row);
+}).sort(byDue);
 const trialKey = (t) => `trial|${t.date}|${t.time}|${normPhone(t.phone) || t.name}`;
-const trialOfLead = (l) => S.d.trials.filter((t) => t.date === l.trialDate && (!l.trialTime || t.time === l.trialTime)
-  && normPhone(t.phone) === normPhone(l.phone)).pop();
 
 /** Ключи «напомнили»: ключ → время. */
 function dismissed() {
@@ -327,13 +330,12 @@ function trialVars(x) {
 
 /* ============================== Каркас ============================== */
 
-const TAB_ORDER = ['today', 'board', 'students', 'tasks', 'more'];
-/** На компьютере в меню слева есть ещё «Пробные»; на телефоне архив открывается из «Ещё». */
-const SIDE_ORDER = ['today', 'board', 'students', 'trials', 'tasks', 'more'];
-const TITLES = { today: 'Сегодня', board: 'Лиды', students: 'Ученики', trials: 'Пробные', tasks: 'Задачи', more: 'Ещё' };
+const TAB_ORDER = ['today', 'trials', 'students', 'tasks', 'more'];
+const SIDE_ORDER = ['today', 'trials', 'students', 'tasks', 'more'];
+const TITLES = { today: 'Сегодня', trials: 'Пробные', students: 'Ученики', tasks: 'Задачи', more: 'Ещё' };
 const M_TAB_IC = { students: 'users', trials: 'trial' };
 const VIEWS = {
-  today: () => viewToday(), board: () => viewBoard(), tasks: () => viewTasks(), more: () => viewMore(),
+  today: () => viewToday(), tasks: () => viewTasks(), more: () => viewMore(),
   students: () => viewStudents(), trials: () => viewTrials(), // students.js
   // кабинет преподавателя (teacher.js)
   tday: () => tViewDay(), ttrial: () => tViewTrials(), tstud: () => tViewStudents(), tzp: () => tViewZp(), tmore: () => tViewMore(),
@@ -353,7 +355,7 @@ function shell() {
   return `
     <aside class="sidebar">
       <div class="brand"><span class="mark">${mark()}</span><span>${teacher ? 'Эспада' : 'Эспада CRM'}</span></div>
-      ${teacher ? '' : `<button class="btn primary side-new" data-act="newLead">${ic('plus', 2.4)}Новый лид<kbd>N</kbd></button>`}
+      ${teacher ? '' : `<button class="btn primary side-new" data-act="newTrial">${ic('plus', 2.4)}Новый пробный<kbd>N</kbd></button>`}
       <nav class="side-nav">${sideList().map((v) => `
         <button class="nav-item" data-act="tab" data-v="${v}">${ic(tabIcon(v))}<span>${tabTitle(v)}</span><span class="badge hidden"></span></button>`).join('')}</nav>
       <div class="side-foot">${ic('user', 2)}<span class="me-name"></span><span class="pill accent hidden me-main">главный</span></div>
@@ -368,7 +370,7 @@ function shell() {
       </header>
       <main id="view"></main>
     </div>
-    ${teacher ? '' : `<button class="fab" data-act="fabNew" aria-label="Новый лид">${ic('plus', 2.4)}</button>`}
+    ${teacher ? '' : `<button class="fab" data-act="fabNew" aria-label="Новый пробный">${ic('plus', 2.4)}</button>`}
     <nav class="tabbar">${tabList().map((v) => `
       <button class="tab" data-act="tab" data-v="${v}">${ic(tabIcon(v))}<span>${tabTitle(v)}</span><span class="badge hidden"></span></button>`).join('')}</nav>`;
 }
@@ -394,14 +396,13 @@ function render(opts = {}) {
   if (teacher) badges = tBadges();
   else {
     const overdue = openTasks().filter((x) => myTask(x) && x.due && x.due < nowS()).length;
-    const fresh = S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me())).length;
-    badges = { today: overdue + fresh, tasks: overdue };
+    badges = { today: overdue, trials: trialsNoResult().length, tasks: overdue };
   }
 
   // каркас: только активный пункт, счётчики и подписи
   $$('#app .nav-item, #app .tab').forEach((b) => {
     const v = b.dataset.v;
-    b.classList.toggle('on', v === view || (view === 'trials' && v === 'more' && b.classList.contains('tab')));
+    b.classList.toggle('on', v === view);
     const badge = $('.badge', b);
     badge.textContent = badges[v] || '';
     badge.classList.toggle('hidden', !badges[v]);
@@ -412,26 +413,22 @@ function render(opts = {}) {
   $('.me-main').classList.toggle('hidden', teacher || !isMain());
   const fab = $('.fab');
   if (fab) {
-    fab.classList.toggle('fab-off', view === 'more' || view === 'trials');
-    fab.setAttribute('aria-label', view === 'students' ? 'Новый ученик' : 'Новый лид');
+    fab.classList.toggle('fab-off', view === 'more');
+    fab.setAttribute('aria-label', view === 'students' ? 'Новый ученик' : view === 'tasks' ? 'Новая задача' : 'Новый пробный');
   }
   $('.app-body').className = 'app-body view-' + view;
   $('#busy').classList.toggle('spin', S.busy > 0);
 
   // содержимое экрана
   const main = $('#view');
-  const st0 = $('.stage-tabs', main);
-  const stageScroll = st0 ? st0.scrollLeft : 0;
   const scroll = window.scrollY;
   const cls = ['left', 'right', 'fade'].includes(anim) ? 'enter-' + anim : '';
   main.className = '';
   if (cls) { void main.offsetWidth; main.className = cls; }
   main.innerHTML = VIEWS[view]();
   window.scrollTo(0, scroll);
-  const st1 = $('.stage-tabs', main);
-  if (st1) st1.scrollLeft = stageScroll;
   if (cls) flash($('.tb-text'), 'title-in');
-  bindBoard();
+  bindSearch();
   afterRender(anim);
 }
 let busyTimer = 0;
@@ -537,16 +534,6 @@ function moving(box, moved) {
   clearTimeout(box._mv);
   box._mv = setTimeout(() => box.classList.remove('moving'), 460);
 }
-function stageIndicator(smooth) {
-  const box = $('.stage-tabs'), on = box && $('.stage-tab.on', box);
-  if (!on) return;
-  moving(box, placeIndicator('stage', box, on, getComputedStyle(on).getPropertyValue('--c').trim()));
-  const l = on.offsetLeft, r = l + on.offsetWidth;
-  if (l < box.scrollLeft + 12 || r > box.scrollLeft + box.clientWidth - 12) {
-    box.scrollTo({ left: Math.max(0, l - (box.clientWidth - on.offsetWidth) / 2), behavior: smooth && !reduced() ? 'smooth' : 'auto' });
-  }
-}
-
 /** Поставить ползунки на место без анимации (шрифт догрузился, сменился размер экрана). */
 function relayoutIndicators() {
   if (!S.d) return;
@@ -556,8 +543,6 @@ function relayoutIndicators() {
   placeIndicator('tabbar', $('.tabbar'), $('.tab.on'));
   placeIndicator('side', $('.side-nav'), $('.nav-item.on'));
   placeIndicator('tasks-seg', $('.seg-btns'), $('.seg-btns .chip.on'));
-  const box = $('.stage-tabs'), on = box && $('.stage-tab.on', box);
-  if (on) placeIndicator('stage', box, on, getComputedStyle(on).getPropertyValue('--c').trim());
   requestAnimationFrame(() => requestAnimationFrame(() => $$('.ind').forEach((i) => { i.style.transition = ''; })));
 }
 
@@ -566,10 +551,9 @@ function afterRender(anim) {
   placeIndicator('tabbar', $('.tabbar'), $('.tab.on'));
   moving($('.side-nav'), placeIndicator('side', $('.side-nav'), $('.nav-item.on')));
   placeIndicator('tasks-seg', $('.seg-btns'), $('.seg-btns .chip.on'));
-  stageIndicator(false);
   const view = $('#view');
-  if (anim === 'soft') staggerIn(view, isWide() ? '.section, .card' : '.section, .col.on .card', 16);
-  else if (anim) staggerIn(view, isWide() ? '.hello, .toolbar, .section, .card' : '.hello, .toolbar, .stage-tabs, .section, .col.on .card', 16);
+  if (anim === 'soft') staggerIn(view, '.section', 16);
+  else if (anim) staggerIn(view, '.hello, .toolbar, .section', 16);
   const nums = [];
   $$('.stat', view).forEach((el, i) => nums.push(['s' + i, $('b', el).textContent, el]));
   sideList().forEach((v) => {
@@ -625,32 +609,13 @@ function addChrome() {
   if (!$('#ptr')) document.body.insertAdjacentHTML('beforeend', `<div id="ptr" aria-hidden="true"><span>${ic('refresh', 2.2)}</span></div>`);
 }
 
-/** Жесты на телефоне: тень у шапки, смахивание этапов, «потяните, чтобы обновить». */
+/** Жесты на телефоне: тень у шапки, «потяните, чтобы обновить». */
 function initGestures() {
   let ticking = false;
   addEventListener('scroll', () => {
     if (ticking) return;
     ticking = true;
     requestAnimationFrame(() => { document.body.classList.toggle('scrolled', window.scrollY > 4); ticking = false; });
-  }, { passive: true });
-
-  // Смахивание влево-вправо на доске — соседний этап
-  let sw = null;
-  document.addEventListener('touchstart', (e) => {
-    sw = null;
-    const t = e.target;
-    if (!t.closest || isWide() || stack.length || e.touches.length > 1 || !t.closest('#boardWrap') || t.closest('.stage-tabs')) return;
-    sw = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
-  }, { passive: true });
-  document.addEventListener('touchend', (e) => {
-    if (!sw) return;
-    const p = e.changedTouches[0], dx = p.clientX - sw.x, dy = p.clientY - sw.y, dt = Date.now() - sw.t;
-    sw = null;
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6 || dt > 700) return;
-    const i = STAGES.indexOf(S.stage) + (dx < 0 ? 1 : -1);
-    if (i < 0 || i >= STAGES.length) return;
-    S.stage = STAGES[i];
-    redrawBoard(dx < 0 ? 'left' : 'right', true);
   }, { passive: true });
 
   // Потянуть вниз вверху страницы — обновить данные
@@ -673,7 +638,7 @@ function initGestures() {
   document.addEventListener('touchstart', (e) => {
     pl = null;
     if (!S.d || stack.length || isWide() || window.scrollY > 0 || e.touches.length > 1 || ptr.classList.contains('spin')) return;
-    if (e.target.closest && e.target.closest('.stage-tabs, .chips.nowrap, input, textarea, select')) return;
+    if (e.target.closest && e.target.closest('.chips.nowrap, input, textarea, select')) return;
     pl = { x: e.touches[0].clientX, y: e.touches[0].clientY, d: 0, on: false };
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
@@ -710,8 +675,6 @@ function viewToday() {
   const mine = openTasks().filter(myTask);
   const overdue = mine.filter((x) => x.due && x.due < now).sort(byDue);
   const todays = mine.filter((x) => x.due && x.due >= now && x.due.slice(0, 10) === t).sort(byDue);
-  const fresh = S.d.leads.filter((l) => l.stage === 'Новый' && (isMain() || l.owner === me()))
-    .sort((a, b) => (a.created < b.created ? -1 : 1));
   const trials = trialsToday();
   const tomorrow = trialsTomorrow();
   const noRes = trialsNoResult();
@@ -738,7 +701,6 @@ function viewToday() {
   };
 
   let left = '', right = '', pay = '';
-  if (fresh.length) left += sec('sec-fresh', 'Новые — ответить', fresh.length, list('fresh', fresh, freshRow));
   if (overdue.length) left += sec('sec-overdue', 'Просрочено', overdue.length, list('overdue', overdue, taskRow));
   left += sec('sec-tasks', 'Задачи на сегодня', todays.length || null,
     todays.length ? list('todays', todays, taskRow)
@@ -751,7 +713,7 @@ function viewToday() {
       list('tomorrow', tomorrow, (x) => trialRow(x, 'eve|')));
   }
   if (noRes.length) right += sec('sec-nores', 'Заполните итог пробного', noRes.length, list('nores', noRes, noResRow));
-  right += `<button type="button" class="link-btn ar-link" data-act="allTrials">${ic('trial', 2)}Все пробные: архив и конверсия</button>`;
+  right += `<button type="button" class="link-btn ar-link" data-act="allTrials">${ic('trial', 2)}Все пробные и конверсия</button>`;
   if (isMain() || pays.length) {
     pay += sec('sec-pays', 'Напомнить об оплате', pays.length || null,
       pays.length ? list('pays', pays, payRow) : `<div class="list">${emptyState('Всем напомнили')}</div>`);
@@ -759,52 +721,50 @@ function viewToday() {
   return stats + `<div class="today-grid"><div class="g1">${left}</div><div class="g2">${right}</div><div class="g3">${pay}</div></div>`;
 }
 
-function freshRow(l) {
-  return `<div class="row">
-    <div class="main">
-      <div class="title tap" data-act="lead" data-id="${esc(l.id)}">${esc(l.name || prettyPhone(l.phone) || 'Без имени')}
-        ${l.grade ? `<span class="pill">${esc(gr(l.grade))}</span>` : ''}</div>
-      <div class="meta">${[l.source, l.name ? prettyPhone(l.phone) : '', 'написал(а) ' + ago(l.created) + ' назад'].filter(Boolean).map(esc).join(' · ')}</div>
-      <div class="actions">
-        ${waBtn(l.phone, tpl('приветствие', {}), 'Ответить')}
-        <button class="btn" data-act="toStage" data-id="${esc(l.id)}" data-v="В диалоге">В диалоге</button>
-        <button class="btn" data-act="lead" data-id="${esc(l.id)}">Открыть</button>
-      </div>
-    </div></div>`;
-}
 function taskRow(t, o = {}) {
-  const lead = t.leadId ? leadById(t.leadId) : null;
+  const ref = parseTrialRef(t.leadId);
+  const tr = ref ? trialByRow(ref.row) : null;
+  const phone = (tr && tr.phone) || (ref && ref.phone) || '';
   const late = t.due && t.due < nowS();
   const meta = [];
-  if ((lead || t.leadName) && !o.inLead) meta.push(`<a data-act="lead" data-id="${esc(t.leadId)}">${esc(lead ? leadLabel(lead) : t.leadName)}</a>`);
+  if ((tr || t.leadName) && !o.inTrial) {
+    meta.push(tr ? `<a data-act="arOpen" data-row="${tr.row}">${esc(t.leadName || trialLabel(tr))}</a>` : esc(t.leadName));
+  }
   meta.push(`<span class="pill ${late ? 'red' : ''}">${ic('clock', 2)}${esc(dueLabel(t.due))}</span>`);
   if (t.owner && t.owner !== me()) meta.push(esc(t.owner));
+  let acts = '';
+  if (!t.done) {
+    if (/Базу учеников/.test(t.title)) {
+      acts = `<div class="actions"><button class="btn primary" data-act="enroll" data-trial="${tr ? tr.row : ''}" data-task="${esc(t.id)}">Добавить в Базу</button>${waBtn(phone)}${telBtn(phone)}</div>`;
+    } else if (/назнач|новую дату/i.test(t.title) && tr) {
+      acts = `<div class="actions"><button class="btn primary" data-act="rebookTrial" data-row="${tr.row}">Записать</button>${waBtn(phone)}${telBtn(phone)}</div>`;
+    } else if (phone) {
+      acts = `<div class="actions">${waBtn(phone)}${telBtn(phone)}</div>`;
+    }
+  }
   return `<div class="row ${t.done ? 'done' : ''}">
     <button class="check ${t.done ? 'on' : ''}" data-act="taskDone" data-id="${esc(t.id)}" aria-label="Готово">${ic('check', 3)}</button>
     <div class="main">
       <div class="title tap" data-act="task" data-id="${esc(t.id)}">${esc(t.title)}</div>
       <div class="meta">${meta.join(' · ')}</div>
-      ${!t.done && /Базу учеников/.test(t.title) && !(lead && lead.inBase)
-        ? `<div class="actions"><button class="btn primary" data-act="enroll" data-lead="${esc(t.leadId)}">Добавить в Базу</button></div>`
-        : lead && lead.phone && !t.done ? `<div class="actions">${waBtn(lead.phone)}${telBtn(lead.phone)}</div>` : ''}
+      ${acts}
     </div></div>`;
 }
 function trialRow(x, prefix = '') {
   if (typeof prefix !== 'string') prefix = ''; // защита от map(trialRow): там второй аргумент — номер строки
-  const lead = leadByPhone(x.phone);
   const key = prefix + trialKey(x);
   return `<div class="row has-menu ${x.reminded ? 'done' : ''}">
     <button class="row-menu" data-act="trialMenu" data-row="${x.row}" aria-label="Ещё">${ic('more', 2.4)}</button>
     <div class="time-col">${esc(x.time)}</div>
     <div class="main">
-      <div class="title"><span class="t-inline">${esc(x.time)}</span>${lead ? `<a data-act="lead" data-id="${esc(lead.id)}">${x.name ? esc(x.name) : NONAME}</a>` : x.name ? esc(x.name) : NONAME}
+      <div class="title"><span class="t-inline">${esc(x.time)}</span><a data-act="arOpen" data-row="${x.row}">${x.name ? esc(x.name) : NONAME}</a>
         ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
       <div class="meta">${[x.teacher, x.format, prettyPhone(x.phone)].filter(Boolean).map(esc).join(' · ')}</div>
       <div class="actions">
         ${x.reminded
           ? `<span class="pill green">${ic('check', 3)} напомнили</span><button class="btn ghost" data-act="undismiss" data-key="${esc(key)}">Отменить</button>`
           : `${waBtn(x.phone, tpl('напоминание о пробном', trialVars(x)), 'Напомнить')}${telBtn(x.phone)}
-             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc((prefix ? 'Напомнили накануне о пробном: ' : 'Напомнили о пробном: ') + (x.name || prettyPhone(x.phone)))}" data-lead="${esc(lead ? lead.id : '')}">${ic('check', 2.6)}Напомнили</button>`}
+             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc((prefix ? 'Напомнили накануне о пробном: ' : 'Напомнили о пробном: ') + (x.name || prettyPhone(x.phone)))}" >${ic('check', 2.6)}Напомнили</button>`}
       </div>
     </div></div>`;
 }
@@ -812,7 +772,7 @@ function noResRow(x) {
   return `<div class="row stack has-menu">
     <button class="row-menu" data-act="trialMenu" data-row="${x.row}" aria-label="Ещё">${ic('more', 2.4)}</button>
     <div class="main">
-      <div class="title">${x.name ? esc(x.name) : NONAME} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
+      <div class="title"><a data-act="arOpen" data-row="${x.row}">${x.name ? esc(x.name) : NONAME}</a> ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
       <div class="meta">${esc(dayLabel(x.date))}, ${esc(x.time)} · ${esc(x.teacher)}${x.phone ? ' · ' + esc(prettyPhone(x.phone)) : ''}</div>
       <div class="acts">
         ${waUrl(x.phone) ? `<div class="actions">${waBtn(x.phone, '', 'Написать')}${telBtn(x.phone)}</div>` : ''}
@@ -820,9 +780,9 @@ function noResRow(x) {
       </div>
     </div></div>`;
 }
-function resultBtns(x, leadId = '') {
+function resultBtns(x) {
   return RESULTS.map((r) => `<button class="btn ${r === 'Записался' ? 'ok' : r === 'Отказ' ? 'danger' : ''}" data-act="trialRes"
-    data-row="${x.row}" data-phone="${esc(x.phone)}" data-lead="${esc(leadId)}" data-v="${esc(r)}">${esc(r)}</button>`).join('');
+    data-row="${x.row}" data-phone="${esc(x.phone)}" data-v="${esc(r)}">${esc(r)}</button>`).join('');
 }
 function payRow(p) {
   const debt = p.status === 'Долг';
@@ -848,131 +808,16 @@ function telBtn(phone) {
   const u = telUrl(phone);
   return u ? `<a class="btn" href="${esc(u)}" aria-label="Позвонить">${ic('phone', 2)}</a>` : '';
 }
-const leadLabel = (l) => (l.name || prettyPhone(l.phone) || 'Без имени') + (l.grade ? `, ${gr(l.grade)}` : '');
 const emptyState = (text, icon = 'check') => `<div class="empty"><span class="empty-ic">${ic(icon, 2.2)}</span><span>${esc(text)}</span></div>`;
 const loadingState = (text) => `<div class="empty"><span class="spinner" aria-hidden="true"></span><span>${esc(text)}</span></div>`;
 
-/* ============================== Канбан ============================== */
-
-function filteredLeads() {
-  const q = S.q.trim().toLowerCase();
-  const qd = q.replace(/\D/g, '');
-  return S.d.leads.filter((l) => {
-    if (S.mine && l.owner !== me()) return false;
-    if (!q) return true;
-    if (qd.length >= 3 && normPhone(l.phone).includes(qd.replace(/^0/, ''))) return true;
-    return [l.name, l.contact, l.source, l.comment, l.teacher].join(' ').toLowerCase().includes(q);
-  });
-}
-function stageList(st, leads) {
-  const list = leads.filter((l) => l.stage === st);
-  if (st === 'Новый') return list.sort((a, b) => (a.created < b.created ? 1 : -1));
-  if (st === 'Записался' || st === 'Отказ') return list.sort((a, b) => (a.updated < b.updated ? 1 : -1));
-  return list.sort((a, b) => {
-    const ta = nextTask(a.id), tb = nextTask(b.id);
-    const ka = st === 'Пробный' ? a.trialDate + a.trialTime : (ta && ta.due) || '9';
-    const kb = st === 'Пробный' ? b.trialDate + b.trialTime : (tb && tb.due) || '9';
-    return ka < kb ? -1 : 1;
-  });
-}
-function viewBoard() {
-  return `<div class="toolbar">
-      <label class="search">${ic('search')}<input id="q" type="search" placeholder="Имя, телефон, источник" value="${esc(S.q)}" autocomplete="off"></label>
-      <button class="toggle ${S.mine ? 'on' : ''}" data-act="mine">Мои</button>
-    </div>
-    <div id="boardWrap">${boardInner()}</div>
-    <p class="hint">Записался и Отказ хранятся здесь 45 дней, дальше — только в таблице «CRM Лиды».</p>`;
-}
-function boardInner() {
-  const leads = filteredLeads();
-  const wide = matchMedia('(min-width: 1000px)').matches;
-  return `<div class="stage-tabs">${STAGES.map((st) => `<button class="stage-tab ${STAGE_CLS[st]} ${S.stage === st ? 'on' : ''}" data-act="stage" data-v="${esc(st)}">
-      <span class="dot"></span>${esc(st)}<span class="n">${leads.filter((l) => l.stage === st).length}</span></button>`).join('')}</div>
-    <div class="board">${STAGES.map((st) => {
-      const list = stageList(st, leads);
-      return `<div class="col ${STAGE_CLS[st]} ${S.stage === st ? 'on' : ''}" data-stage="${esc(st)}">
-        <div class="col-h"><span class="dot"></span>${esc(st)}<span class="n">${list.length}</span></div>
-        <div class="cards">${list.map((l) => leadCard(l, wide)).join('') || `<div class="empty col-empty">${wide ? 'Перетащите карточку сюда' : 'В этом этапе пока никого'}</div>`}</div></div>`;
-    }).join('')}</div>`;
-}
-function leadCard(l, draggable) {
-  const nt = nextTask(l.id);
-  const active = ACTIVE.includes(l.stage);
-  let next = '';
-  if (l.stage === 'Пробный' && l.trialDate) {
-    const late = l.trialDate < todayS();
-    next = `<div class="next ${late ? 'late' : ''}">${ic('trial', 2)}${esc(dayLabel(l.trialDate))}, ${esc(l.trialTime)} · ${esc(l.teacher)}${late ? ' · нужен итог' : ''}</div>`;
-  } else if (nt) {
-    const late = nt.due && nt.due < nowS();
-    next = `<div class="next ${late ? 'late' : ''}">${ic('clock', 2)}${esc(nt.title)} · ${esc(dueLabel(nt.due))}</div>`;
-  } else if (l.stage === 'Отказ' && l.lostReason) {
-    next = `<div class="next">${esc(l.lostReason)}</div>`;
-  } else if (active && l.stage !== 'Новый') {
-    next = '<div class="next"><span class="pill amber">нет следующего шага</span></div>';
-  }
-  return `<div class="card ${STAGE_CLS[l.stage]}" data-act="lead" data-id="${esc(l.id)}" ${draggable ? 'draggable="true"' : ''}>
-    <div class="top"><div class="name">${esc(l.name || prettyPhone(l.phone) || 'Без имени')}</div><div class="ago">${esc(ago(l.updated))}</div></div>
-    <div class="line">${[gr(l.grade), l.format, l.source].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('<span>·</span>')}
-      ${l.owner && l.owner !== me() ? `<span class="pill">${esc(l.owner)}</span>` : ''}</div>
-    ${next}
-  </div>`;
-}
-function bindBoard() {
-  const q = $('#q');
-  if (q) {
-    q.oninput = () => { S.q = q.value; redrawBoard(); };
-  }
+function bindSearch() {
   const sq = $('#sq');
   if (sq) sq.oninput = () => { SM.q = sq.value; redrawStudents(); };
+  const tsq = $('#tsq');
+  if (tsq) tsq.oninput = () => { TS.q = tsq.value; const w = $('#tsWrap'); if (w) w.innerHTML = tStudList(); };
   const aq = $('#aq');
   if (aq) aq.oninput = () => { AR.q = aq.value; AR.shown = 60; redrawArchive(); };
-}
-/** Перерисовать только доску (поиск, смена этапа) — с ползунком и сдвигом колонки в нужную сторону. */
-function redrawBoard(dir, smooth) {
-  const wrap = $('#boardWrap');
-  if (!wrap) return;
-  const tabs = $('.stage-tabs', wrap);
-  const sl = tabs ? tabs.scrollLeft : 0;
-  wrap.innerHTML = boardInner();
-  const nt = $('.stage-tabs', wrap);
-  if (nt) nt.scrollLeft = sl;
-  stageIndicator(smooth);
-  if (dir && !reduced()) {
-    const col = $('.col.on', wrap);
-    if (col) { col.classList.add('enter-' + dir); staggerIn(col, '.card', 10); }
-  }
-}
-/* Перетаскивание карточек на компьютере */
-document.addEventListener('dragstart', (e) => {
-  const c = e.target.closest && e.target.closest('.card[data-id]');
-  if (!c) return;
-  e.dataTransfer.setData('text/plain', c.dataset.id);
-  c.classList.add('dragging');
-});
-document.addEventListener('dragend', () => $$('.dragging, .col.drop').forEach((x) => x.classList.remove('dragging', 'drop')));
-document.addEventListener('dragover', (e) => {
-  const col = e.target.closest && e.target.closest('.col[data-stage]');
-  if (!col) return;
-  e.preventDefault();
-  $$('.col.drop').forEach((x) => x !== col && x.classList.remove('drop'));
-  col.classList.add('drop');
-});
-document.addEventListener('drop', (e) => {
-  const col = e.target.closest && e.target.closest('.col[data-stage]');
-  if (!col) return;
-  e.preventDefault();
-  col.classList.remove('drop');
-  const l = leadById(e.dataTransfer.getData('text/plain'));
-  if (l) changeStage(l, col.dataset.stage);
-});
-
-function changeStage(l, stage) {
-  if (!l || stage === l.stage) return;
-  if (stage === 'Пробный') return openBooking(l.id);
-  if (stage === 'Отказ') return openLost(l.id);
-  run('moveLead', { id: l.id, stage }, () => { l.stage = stage; }).then(() => toast(`${l.name || 'Лид'} → ${stage}`)).catch(() => {});
-  const card = document.querySelector(`.card[data-id="${CSS.escape(l.id)}"]`);
-  if (card) flash(card, 'landed');
 }
 
 /* ============================== Задачи ============================== */
@@ -1024,31 +869,11 @@ function teacherBotSection(d) {
 function viewMore() {
   const d = S.d;
   const tg = d.telegram || {};
-  const since = dtStr(new Date(Date.now() - 30 * 86400000));
-  const recent = d.leads.filter((l) => l.created >= since);
-  const withTrial = recent.filter((l) => l.trialDate || ['Пробный', 'После пробного', 'Записался'].includes(l.stage));
-  const won = recent.filter((l) => l.stage === 'Записался');
-  const lost = recent.filter((l) => l.stage === 'Отказ');
-  const bySrc = {};
-  recent.forEach((l) => {
-    const k = l.source || 'Не указан';
-    bySrc[k] = bySrc[k] || { n: 0, t: 0, w: 0 };
-    bySrc[k].n++;
-    if (withTrial.includes(l)) bySrc[k].t++;
-    if (l.stage === 'Записался') bySrc[k].w++;
-  });
-  const reasons = {};
-  lost.forEach((l) => { const k = l.lostReason || 'Не указана'; reasons[k] = (reasons[k] || 0) + 1; });
-  const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '—');
 
   return `<div class="more-grid"><div>
   <section class="section"><div class="list">
     <div class="row"><div class="check on" style="background:var(--accent);border-color:var(--accent)">${ic('user', 2)}</div>
       <div class="main"><div class="title">${esc(d.me)}</div><div class="meta">${isMain() ? 'Главный менеджер: общие напоминания приходят вам' : 'Менеджер'}</div></div></div>
-  </div></section>
-
-  <section class="section"><div class="menu">
-    <button data-act="allTrials">${ic('trial')}<span>Архив пробных</span><small>итоги и конверсия</small></button>
   </div></section>
 
   <section class="section"><div class="section-h"><h2>Telegram-напоминания</h2></div><div class="list"><div class="row"><div class="main">
@@ -1063,20 +888,6 @@ function viewMore() {
   ${teacherBotSection(d)}
 
   </div><div>
-  <section class="section"><div class="section-h"><h2>Последние 30 дней</h2></div><div class="list">
-    <div class="funnel">
-      <div><b>${recent.length}</b><span>${plural(recent.length, ['новый лид', 'новых лида', 'новых лидов'])}</span></div>
-      <div><b>${withTrial.length}</b><span>на пробный · ${pct(withTrial.length, recent.length)}</span></div>
-      <div><b>${won.length}</b><span>записались · ${pct(won.length, recent.length)}</span></div>
-      <div><b>${lost.length}</b><span>отказ</span></div>
-    </div>
-    ${Object.keys(bySrc).length ? `<table class="table"><thead><tr><th>Источник</th><th>Лиды</th><th>Пробный</th><th>Записались</th></tr></thead><tbody>
-      ${Object.entries(bySrc).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.t}</td><td>${v.w} <span style="color:var(--muted)">${pct(v.w, v.n)}</span></td></tr>`).join('')}
-    </tbody></table>` : ''}
-    ${Object.keys(reasons).length ? `<table class="table"><thead><tr><th>Причины отказа</th><th></th></tr></thead><tbody>
-      ${Object.entries(reasons).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('')}</tbody></table>` : ''}
-  </div></section>
-
   <section class="section"><div class="section-h"><h2>Оформление</h2></div>
     <div class="seg">${Object.entries(SKINS).map(([k, label]) => `<label class="chip"><input type="radio" name="skin" value="${k}"
       ${(lsGet('espada-skin') || 'brand') === k ? 'checked' : ''} data-skin-pick><span>${label}</span></label>`).join('')}</div>
@@ -1088,7 +899,7 @@ function viewMore() {
     <button data-act="open" data-url="${esc(d.links ? d.links.base : '')}">${ic('table')}<span>База учеников</span></button>
     <button data-act="open" data-url="${esc(d.links ? d.links.sched : '')}">${ic('table')}<span>Расписание, пробные и CRM-листы</span></button>
   </div>
-  <p class="hint">Шаблоны сообщений WhatsApp, источники и причины отказа меняются на листе «CRM Настройки» в таблице «Расписание».</p></section>
+  <p class="hint">Шаблоны сообщений WhatsApp и время напоминаний меняются на листе «CRM Настройки» в таблице «Расписание».</p></section>
 
   <section class="section"><div class="menu">
     <button data-act="refresh">${ic('refresh')}<span>Обновить данные</span><small>${S.loadedAt ? 'обновлено ' + ago(dtStr(new Date(S.loadedAt))) + (ago(dtStr(new Date(S.loadedAt))) === 'только что' ? '' : ' назад') : ''}</small></button>
@@ -1202,77 +1013,7 @@ function pick(title, items) {
   });
 }
 
-/* ---------- Карточка лида ---------- */
-
-function openLead(id) {
-  openSheet(() => leadSheet(id), { live: true });
-}
-function leadSheet(id) {
-  const l = leadById(id);
-  if (!l) return sheetHead('Лид') + '<div class="list"><div class="empty">Лид не найден — возможно, он старше 45 дней</div></div>';
-  const tasks = leadTasks(id);
-  const tr = l.trialDate ? trialOfLead(l) : null;
-  const t = todayS();
-  let trial = '';
-  if (l.trialDate) {
-    const vars = trialVars({ ...l, date: l.trialDate, time: l.trialTime });
-    trial = `<section class="section"><div class="section-h"><h2>Пробное занятие</h2></div><div class="list"><div class="row">
-      <div class="main"><div class="title">${esc(dayLabel(l.trialDate))}, ${esc(l.trialTime)} · ${esc(l.teacher)}</div>
-      <div class="meta">${esc(l.format || '')}${l.trialResult ? ` · итог: <b>${esc(l.trialResult)}</b>` : ''}</div>
-      <div class="actions">
-        ${!l.trialResult && l.trialDate >= t ? waBtn(l.phone, tpl('напоминание о пробном', vars), 'Напомнить') : ''}
-        ${!l.trialResult && l.trialDate <= t && tr ? resultBtns(tr, l.id) : ''}
-        ${l.trialResult === 'Думает' || l.trialResult === 'Не пришёл' ? waBtn(l.phone, tpl('после пробного', vars), 'Написать') : ''}
-        ${ACTIVE.includes(l.stage) ? `<button class="btn" data-act="book" data-id="${esc(l.id)}">${l.trialResult ? 'Новый пробный' : 'Перенести'}</button>` : ''}
-        ${tr ? `<button class="btn ghost danger" data-act="trialDel" data-row="${tr.row}">${ic('trash', 2)}Удалить</button>` : ''}
-      </div></div></div></div></section>`;
-  }
-  const log = (l.log || '').split('\n').filter(Boolean).reverse()
-    .map((x) => esc(x).replace(/^(\d\d\.\d\d \d\d:\d\d)( [^:]{1,30}:)?/, '<b>$1$2</b>')).join('\n');
-  return sheetHead('') + `
-    <div class="lead-head ${STAGE_CLS[l.stage]}">
-      <div class="ava" aria-hidden="true">${l.name && l.name.trim() ? esc(l.name.trim()[0].toUpperCase()) : ic('phone', 2)}</div>
-      <div class="lh">
-        <div class="nm">${l.name ? esc(l.name) : esc(prettyPhone(l.phone) || 'Без имени')}</div>
-        <div class="info">
-          <button class="pill stage-pill ${STAGE_CLS[l.stage]}" data-act="leadStage" data-id="${esc(l.id)}"><span class="dot"></span>${esc(l.stage)}${ic('chev', 2.6)}</button>
-          ${[/^\d+$/.test(String(l.grade).trim()) ? l.grade + ' класс' : gr(l.grade), l.format, l.source].filter(Boolean).map(esc).join(' · ')}
-        </div>
-      </div>
-    </div>
-    <div class="quick">
-      <button class="wa" data-act="waLead" data-id="${esc(l.id)}">${ic('wa', 1.8)}WhatsApp</button>
-      <button data-act="call" data-phone="${esc(l.phone)}">${ic('phone', 1.8)}Позвонить</button>
-      <button data-act="addTask" data-lead="${esc(l.id)}">${ic('task', 1.8)}Задача</button>
-      <button data-act="book" data-id="${esc(l.id)}">${ic('trial', 1.8)}Пробный</button>
-    </div>
-    ${l.stage === 'Записался' && !l.inBase ? `<section class="section"><div class="list"><div class="row"><div class="main">
-      <div class="title">Ученик записался 🎉</div><div class="meta">Добавьте его в «Базу учеников» — он появится и в расписании преподавателя.</div>
-      <div class="actions"><button class="btn primary" data-act="enroll" data-lead="${esc(l.id)}">Добавить в Базу</button></div></div></div></div></section>` : ''}
-    ${trial}
-    <section class="section"><div class="section-h"><h2>Задачи</h2><button class="link" data-act="addTask" data-lead="${esc(l.id)}">+ Добавить</button></div>
-      <div class="list">${tasks.length ? tasks.map((x) => taskRow(x, { inLead: true })).join('') : emptyState(ACTIVE.includes(l.stage) ? 'Нет следующего шага — добавьте задачу' : 'Задач нет', 'task')}</div></section>
-    <section class="section"><div class="section-h"><h2>Данные</h2><button class="link" data-act="editLead" data-id="${esc(l.id)}">Изменить</button></div>
-      <div class="list kv">
-        <div class="k">Телефон</div><div>${l.phone ? `<a href="${esc(telUrl(l.phone))}">${esc(prettyPhone(l.phone))}</a>` : '—'}</div>
-        <div class="k">Кто пишет</div><div>${esc(l.contact || '—')}</div>
-        <div class="k">Ответственный</div><div>${esc(l.owner || '—')}</div>
-        ${l.inBase ? `<div class="k">В Базе</div><div>${(() => {
-          const m = l.inBase.match(/^(.+?), строка (\d+)$/);
-          return m ? `<a data-act="stOpen" data-teacher="${esc(m[1])}" data-name="${esc(l.name)}" data-row="${m[2]}">${esc(m[1])} · карточка ученика</a>` : esc(l.inBase);
-        })()}</div>` : ''}
-        <div class="k">Создан</div><div>${esc(l.created ? dayLabel(l.created.slice(0, 10)) + ', ' + l.created.slice(11) : '—')}</div>
-        ${l.lostReason ? `<div class="k">Причина отказа</div><div>${esc(l.lostReason)}</div>` : ''}
-        ${l.comment ? `<div class="k">Комментарий</div><div style="white-space:pre-wrap">${esc(l.comment)}</div>` : ''}
-      </div></section>
-    <section class="section"><div class="section-h"><h2>Заметка</h2></div>
-      <textarea class="input" id="note" rows="2" placeholder="Например: мама просит группу после 17:00"></textarea>
-      <div style="margin-top:8px"><button class="btn primary" data-act="addNote" data-id="${esc(l.id)}">Добавить заметку</button></div></section>
-    <section class="section"><div class="section-h"><h2>История</h2></div><div class="list"><div class="log">${log || 'Пока пусто'}</div></div></section>
-    <section class="section del-zone"><button class="btn danger del-btn" data-act="deleteLead" data-id="${esc(l.id)}">${ic('trash', 2)}Удалить лида</button></section>`;
-}
-
-/* ---------- Новый лид / изменение ---------- */
+/* ---------- Запись, перенос и редактирование пробного ---------- */
 
 function radios(name, values, cur, cls = '') {
   return values.map((v) => {
@@ -1280,125 +1021,84 @@ function radios(name, values, cur, cls = '') {
     return `<label class="chip ${cls}"><input type="radio" name="${name}" value="${esc(val)}" ${String(cur) === String(val) ? 'checked' : ''}><span>${esc(label)}</span></label>`;
   }).join('');
 }
-const listSetting = (k) => String(S.d.settings[k] || '').split(',').map((x) => x.trim()).filter(Boolean);
 
-function openLeadForm(id) {
-  const l = id ? leadById(id) : null;
-  openSheet(() => sheetHead(l ? 'Изменить лид' : 'Новый лид') + `
-    <form id="leadForm" autocomplete="off">
-      <div class="field"><div class="lbl-row"><label for="f-phone">Телефон / WhatsApp</label>
-        <button type="button" class="link-btn" id="pastePhone">${ic('task', 2)}Вставить из буфера</button></div>
-        <input class="input" id="f-phone" name="phone" type="tel" inputmode="tel" placeholder="0555 123 456" value="${esc(l ? prettyPhone(l.phone) : '')}">
-        <div id="dup"></div></div>
-      <div class="field"><label for="f-name">Имя ребёнка</label>
-        <input class="input" id="f-name" name="name" placeholder="Например, Айбек" value="${esc(l ? l.name : '')}" autocapitalize="words"></div>
-      <div class="field"><span class="lbl">Класс</span><div class="chips">${radios('grade', GRADES, l ? l.grade : '', 'sq')}</div></div>
-      <div class="field"><span class="lbl">Кто пишет</span>
-        <div class="chips" style="margin-bottom:8px">${['Мама', 'Папа', 'Ученик'].map((x) => `<button type="button" class="chip-btn" data-fill="contact" data-v="${x}">${x}</button>`).join('')}</div>
-        <input class="input" name="contact" placeholder="Например, мама Айгуль" value="${esc(l ? l.contact : '')}"></div>
-      <div class="field"><span class="lbl">Формат</span><div class="seg">${radios('format', ['Офлайн', 'Онлайн'], l ? l.format : '')}</div></div>
-      <div class="field"><span class="lbl">Источник</span><div class="chips">${radios('source', listSetting('Источники'), l ? l.source : '')}</div></div>
-      <div class="field"><span class="lbl">Ответственный</span><div class="seg">${radios('owner', S.d.users, l ? l.owner || me() : me())}</div></div>
-      ${l ? '' : `<div class="field"><span class="lbl">Этап</span><div class="seg">${radios('stage', ['Новый', 'В диалоге'], 'Новый')}</div></div>
-      <div class="field"><span class="lbl">Напомнить связаться</span><div class="chips">${radios('first', [['', 'Не надо'], ['1h', 'Через час'], ['eve', 'Сегодня в 18:00'], ['tm', 'Завтра в 10:00']], '')}</div></div>`}
-      <div class="field"><label for="f-comment">Комментарий</label>
-        <textarea class="input" id="f-comment" name="comment" rows="2" placeholder="Что спрашивали, пожелания по времени">${esc(l ? l.comment : '')}</textarea></div>
-      <div class="sheet-foot"><button class="btn primary lg" type="submit">${l ? 'Сохранить' : 'Добавить лид'}</button></div>
-    </form>`, {
+function openBookTrial(opts = {}) {
+  const isEdit = !!opts.edit;
+  const tr = opts.edit || opts.reschedule || opts.prefill || null;
+  const t = todayS();
+  const days = [];
+  for (let i = 0; days.length < 8; i++) { const d = addDays(t, i); if (parseD(d).getDay() !== 0) days.push(d); }
+  const initDate = isEdit && tr.date ? tr.date : days[0];
+  const customDate = !days.includes(initDate);
+  const st = {
+    teacher: (tr && tr.teacher) || '',
+    date: initDate,
+    time: isEdit && tr.time ? tr.time : '',
+    format: (tr && tr.format) || 'Офлайн',
+    grade: (tr && tr.grade) || '',
+  };
+  const title = isEdit ? 'Изменить пробный' : opts.reschedule ? 'Перенести пробный' : 'Запись на пробный';
+  openSheet(() => sheetHead(title) + `
+    ${opts.reschedule ? `<p class="hint" style="margin-top:0">Прежний пробный (${esc(dayLabel(tr.date))}, ${esc(tr.time)}) отметится как «Перенос».</p>` : ''}
+    <div class="field"><div class="lbl-row"><label for="bt-phone">Телефон / WhatsApp</label>
+      <button type="button" class="link-btn" id="pastePhone">${ic('task', 2)}Вставить из буфера</button></div>
+      <input class="input" id="bt-phone" type="tel" inputmode="tel" placeholder="0555 123 456" value="${esc(tr ? prettyPhone(tr.phone) : '')}">
+      <div id="dup"></div></div>
+    <div class="field"><label for="bt-name">Имя ребёнка</label>
+      <input class="input" id="bt-name" placeholder="Например, Айбек" value="${esc(tr ? tr.name : '')}" autocapitalize="words"></div>
+    <div class="field"><span class="lbl">Класс</span><div class="chips">${radios('grade', GRADES, st.grade, 'sq')}</div></div>
+    <div class="field"><span class="lbl">Формат</span><div class="seg">${radios('format', ['Офлайн', 'Онлайн'], st.format)}</div></div>
+    <div class="field"><span class="lbl">Преподаватель</span><div class="chips">${radios('teacher', S.d.teachers, st.teacher)}</div></div>
+    <div class="field"><span class="lbl">День</span><div class="chips nowrap">${radios('date', days.map((d) => [d, dayLabel(d)]), customDate ? '' : st.date)}
+      <label class="chip"><input type="date" id="f-date" ${isEdit ? '' : `min="${t}"`} value="${customDate ? esc(st.date) : ''}" style="position:absolute;inset:0;opacity:0;width:100%"><span>${customDate ? esc(dayLabel(st.date)) : 'Другой…'}</span></label></div></div>
+    <div class="field"><span class="lbl">Время<span id="gradeHint" style="font-weight:500">${st.grade ? ` · ★ — в группе уже есть ${esc(gr(st.grade))}` : ''}</span></span><div id="slots"></div></div>
+    <div class="field"><label for="f-tc">Комментарий для таблицы</label><input class="input" id="f-tc" placeholder="Необязательно" value="${esc(isEdit && tr.comment ? tr.comment : '')}"></div>
+    <div class="sheet-foot"><button class="btn primary lg" id="bookBtn" disabled>Выберите преподавателя</button></div>`, {
     after: (sh) => {
-      const f = $('#leadForm', sh.panel);
-      const phone = $('#f-phone', sh.panel);
+      const p = sh.panel;
+      const phone = $('#bt-phone', p);
       let timer;
       const check = () => {
         clearTimeout(timer);
         const n = normPhone(phone.value);
-        if (n.length < 12) { $('#dup', sh.panel).innerHTML = ''; return; }
+        if (n.length < 12) { $('#dup', p).innerHTML = ''; return; }
         timer = setTimeout(async () => {
           try {
-            const r = await call('checkPhone', { phone: phone.value, exceptId: l ? l.id : '' });
+            const r = await call('checkPhone', { phone: phone.value });
             if (normPhone(phone.value) !== n) return;
             const parts = [];
-            r.leads.forEach((x) => parts.push(`Уже есть лид: <a data-act="lead" data-id="${esc(x.id)}">${esc(leadLabel(x))}</a> (${esc(x.stage)})`));
-            r.students.forEach((x) => parts.push(`Уже в Базе: ${esc(x.name)}${x.grade ? ', ' + esc(gr(x.grade)) : ''} — преподаватель ${esc(x.teacher)} (${esc(x.status || 'учится')})`));
-            r.trials.forEach((x) => parts.push(`Был пробный ${esc(x.date.split('-').reverse().slice(0, 2).join('.'))}, преподаватель ${esc(x.teacher)}${x.result ? ' — ' + esc(x.result) : ''}`));
-            $('#dup', sh.panel).innerHTML = parts.length ? `<div class="warnbox">${parts.join('<br>')}</div>` : '';
+            (r.students || []).forEach((x) => parts.push(`Уже в Базе: ${esc(x.name)}${x.grade ? ', ' + esc(gr(x.grade)) : ''} — преподаватель ${esc(x.teacher)} (${esc(x.status || 'учится')})`));
+            (r.trials || []).filter((x) => !isEdit || x.row !== tr.row).forEach((x) => parts.push(`Был пробный ${esc(x.date.split('-').reverse().slice(0, 2).join('.'))}, преподаватель ${esc(x.teacher)}${x.result ? ' — ' + esc(x.result) : ''}`));
+            $('#dup', p).innerHTML = parts.length ? `<div class="warnbox">${parts.join('<br>')}</div>` : '';
           } catch { /* проверка необязательная */ }
         }, 450);
       };
       phone.addEventListener('input', check);
-      $('#pastePhone', sh.panel).onclick = async () => {
+      $('#pastePhone', p).onclick = async () => {
         try {
           const text = await navigator.clipboard.readText();
           const m = String(text || '').match(/\+?\d[\d\s()\-]{7,}\d/);
           if (!m) return toast('В буфере обмена нет номера телефона', { err: true });
           phone.value = prettyPhone(m[0]);
           check();
-          $('#f-name', sh.panel).focus();
+          $('#bt-name', p).focus();
         } catch {
           toast('Не удалось прочитать буфер. Нажмите в поле и выберите «Вставить»', { err: true });
         }
       };
-      if (l) check();
-      $$('[data-fill]', sh.panel).forEach((b) => { b.onclick = () => { f.elements[b.dataset.fill].value = b.dataset.v + ' '; f.elements[b.dataset.fill].focus(); }; });
-      if (!l) setTimeout(() => phone.focus(), 300);
-      f.onsubmit = async (e) => {
-        e.preventDefault();
-        const v = Object.fromEntries(new FormData(f).entries());
-        if (!v.phone.trim() && !v.name.trim()) return toast('Укажите телефон или имя', { err: true });
-        const btn = $('button[type=submit]', f);
-        btn.disabled = true; btn.textContent = 'Сохраняю…';
-        const lead = { phone: v.phone.trim(), name: v.name.trim(), grade: v.grade || '', contact: v.contact.trim(), format: v.format || '',
-          source: v.source || '', owner: v.owner || me(), comment: v.comment.trim() };
-        const payload = { lead };
-        if (l) lead.id = l.id; else lead.stage = v.stage || 'Новый';
-        if (!l && v.first) {
-          const d = new Date();
-          const due = v.first === '1h' ? dtStr(new Date(Date.now() + 3600000)) : v.first === 'eve' ? todayS() + 'T18:00' : addDays(todayS(), 1) + 'T10:00';
-          payload.firstTask = { title: 'Связаться: ответить на вопросы, предложить пробный', due: d && due };
-        }
-        try {
-          const r = await run('saveLead', payload);
-          sh.close();
-          if (!l) {
-            const nl = r.leads[0];
-            toast('Лид добавлен', { action: 'Открыть', onAction: () => openLead(nl.id) });
-          }
-        } catch { btn.disabled = false; btn.textContent = l ? 'Сохранить' : 'Добавить лид'; }
-      };
-    },
-  });
-}
+      if (tr && tr.phone) check();
+      if (!tr) setTimeout(() => phone.focus(), 300);
 
-/* ---------- Запись на пробный ---------- */
-
-function openBooking(id) {
-  const l = leadById(id);
-  if (!l) return;
-  if (!l.phone) { toast('Сначала укажите телефон лида', { err: true }); return openLeadForm(id); }
-  const t = todayS();
-  const days = [];
-  for (let i = 0; days.length < 8; i++) { const d = addDays(t, i); if (parseD(d).getDay() !== 0) days.push(d); }
-  const st = { teacher: l.teacher || '', date: days[0], time: '', format: l.format || 'Офлайн' };
-  openSheet(() => sheetHead('Запись на пробный') + `
-    <p class="hint" style="margin-top:0">${esc(leadLabel(l))} · ${esc(prettyPhone(l.phone))}</p>
-    <div class="field"><span class="lbl">Преподаватель</span><div class="chips">${radios('teacher', S.d.teachers, st.teacher)}</div></div>
-    <div class="field"><span class="lbl">День</span><div class="chips nowrap">${radios('date', days.map((d) => [d, dayLabel(d)]), st.date)}
-      <label class="chip"><input type="date" id="f-date" min="${t}" style="position:absolute;inset:0;opacity:0;width:100%"><span>Другой…</span></label></div></div>
-    <div class="field"><span class="lbl">Время${l.grade ? ` <span style="font-weight:500">· ★ — в группе уже есть ${esc(gr(l.grade))}</span>` : ''}</span><div id="slots"></div></div>
-    <div class="field"><span class="lbl">Формат</span><div class="seg">${radios('format', ['Офлайн', 'Онлайн'], st.format)}</div></div>
-    <div class="field"><label for="f-tc">Комментарий для таблицы</label><input class="input" id="f-tc" placeholder="Необязательно"></div>
-    <div class="sheet-foot"><button class="btn primary lg" id="bookBtn" disabled>Выберите время</button></div>`, {
-    after: (sh) => {
-      const p = sh.panel;
       const upd = () => {
         const b = $('#bookBtn', p);
         const ok = st.teacher && st.date && st.time;
         b.disabled = !ok;
-        b.textContent = ok ? `Записать: ${dayLabel(st.date)}, ${st.time} · ${st.teacher}` : !st.teacher ? 'Выберите преподавателя' : 'Выберите время';
+        if (!ok) b.textContent = !st.teacher ? 'Выберите преподавателя' : 'Выберите время';
+        else b.textContent = isEdit ? `Сохранить изменения` : `Записать: ${dayLabel(st.date)}, ${st.time} · ${st.teacher}`;
       };
-      const drawSlots = async () => {
+      const drawSlots = async (keepTime) => {
         const box = $('#slots', p);
-        st.time = '';
+        if (!keepTime) st.time = '';
         upd();
         if (!st.teacher) { box.innerHTML = '<div class="hint" style="margin:0 4px">Сначала выберите преподавателя</div>'; return; }
         const k = st.teacher + '|' + st.date;
@@ -1408,12 +1108,14 @@ function openBooking(id) {
           if (k !== st.teacher + '|' + st.date) return;
         }
         const r = S.slots[k].r;
-        if (r.dayOff || !r.slots.some((s) => s.status !== 'off')) { box.innerHTML = '<div class="warnbox">В этот день преподаватель не работает</div>'; return; }
+        if (r.dayOff || !r.slots.some((s) => s.status !== 'off' || (isEdit && s.time === st.time))) {
+          box.innerHTML = '<div class="warnbox">В этот день преподаватель не работает</div>'; return;
+        }
         const label = { free: 'свободно', group: 'группа', busy: 'занято', off: 'не работает' };
-        const g = (String(l.grade || '').match(/^\s*(\d+)\s*(кл)?\s*$/) || [])[1] || '';
+        const g = (String(st.grade || '').match(/^\s*(\d+)\s*(кл)?\s*$/) || [])[1] || '';
         const hasGrade = (s) => !!g && [...String(s.who || '').matchAll(/(\d+) кл/g)].some((m) => m[1] === g);
-        box.innerHTML = `<div class="slots">${r.slots.filter((s) => s.status !== 'off' || (s.time >= '14:00')).map((s) => `
-          <button type="button" class="slot ${s.status} ${s.status === 'group' && hasGrade(s) ? 'match' : ''}" data-time="${s.time}" ${s.status === 'off' ? 'disabled' : ''}>
+        box.innerHTML = `<div class="slots">${r.slots.filter((s) => s.status !== 'off' || s.time >= '14:00' || (isEdit && s.time === st.time)).map((s) => `
+          <button type="button" class="slot ${s.status} ${s.status === 'group' && hasGrade(s) ? 'match' : ''} ${st.time === s.time ? 'sel' : ''}" data-time="${s.time}" ${s.status === 'off' && !(isEdit && s.time === st.time) ? 'disabled' : ''}>
             <b>${s.time}</b><small>${s.status === 'group' || s.status === 'busy' ? esc(s.type || label[s.status]) + (s.who ? ': ' + esc(s.who.replace(/^(\d+) чел\.:.*/, '$1 чел.')) : '') : label[s.status]}</small>
             ${s.status === 'group' && hasGrade(s) ? `<small class="mt">★ есть ${esc(gr(g))}</small>` : ''}
             ${s.trials.length ? `<small class="tr">пробный: ${esc(s.trials.join(', '))}</small>` : ''}
@@ -1422,30 +1124,58 @@ function openBooking(id) {
       };
       p.addEventListener('change', (e) => {
         const n = e.target.name;
-        if (n === 'teacher') { st.teacher = e.target.value; drawSlots(); }
-        if (n === 'date') { st.date = e.target.value; drawSlots(); }
+        if (n === 'teacher') { st.teacher = e.target.value; drawSlots(false); }
+        if (n === 'date') { st.date = e.target.value; $('#f-date', p).nextElementSibling.textContent = 'Другой…'; drawSlots(false); }
         if (n === 'format') st.format = e.target.value;
+        if (n === 'grade') {
+          st.grade = e.target.value;
+          $('#gradeHint', p).textContent = st.grade ? ` · ★ — в группе уже есть ${gr(st.grade)}` : '';
+          if (st.teacher) drawSlots(true);
+        }
         if (e.target.id === 'f-date' && e.target.value) {
           if (parseD(e.target.value).getDay() === 0) { toast('Воскресенье — выходной', { err: true }); return; }
           st.date = e.target.value;
           $$('input[name=date]', p).forEach((x) => { x.checked = false; });
           e.target.nextElementSibling.textContent = dayLabel(st.date);
-          drawSlots();
+          drawSlots(false);
         }
       });
       $('#bookBtn', p).onclick = async () => {
+        const ph = phone.value.trim();
+        const nm = $('#bt-name', p).value.trim();
+        if (!ph && !nm) { toast('Укажите телефон или имя ребёнка', { err: true }); phone.focus(); return; }
         const b = $('#bookBtn', p);
         b.disabled = true; b.textContent = 'Записываю в таблицу…';
         try {
-          await run('bookTrial', { id: l.id, date: st.date, time: st.time, teacher: st.teacher, format: st.format, comment: $('#f-tc', p).value });
-          delete S.slots[st.teacher + '|' + st.date];
-          sh.close();
-          const fresh = leadById(l.id);
-          const text = tpl('напоминание о пробном', trialVars({ ...fresh, date: st.date, time: st.time }));
-          toast('Записан на пробный и добавлен в «Пробные»', { action: 'Отправить в WhatsApp', onAction: () => window.open(waUrl(l.phone, text), '_blank') });
+          const comment = $('#f-tc', p).value.trim();
+          if (isEdit) {
+            await run('editTrial', {
+              row: tr.row, origDate: tr.date, origPhone: tr.phone,
+              date: st.date, time: st.time, teacher: st.teacher,
+              name: nm, phone: ph, grade: st.grade, format: st.format, comment,
+            });
+            delete S.slots[tr.teacher + '|' + tr.date];
+            delete S.slots[st.teacher + '|' + st.date];
+            sh.close();
+            toast('Пробный обновлён');
+          } else {
+            const r = await run('bookTrial', {
+              date: st.date, time: st.time, teacher: st.teacher,
+              name: nm, phone: ph, grade: st.grade, format: st.format, comment,
+              rescheduleRow: opts.reschedule ? opts.reschedule.row : '',
+            });
+            if (opts.reschedule) delete S.slots[opts.reschedule.teacher + '|' + opts.reschedule.date];
+            delete S.slots[st.teacher + '|' + st.date];
+            sh.close();
+            const saved = (r && r.trials && r.trials[r.trials.length - 1]) || { name: nm, phone: ph, date: st.date, time: st.time, teacher: st.teacher, format: st.format };
+            const text = tpl('напоминание о пробном', trialVars(saved));
+            const wa = waUrl(saved.phone || ph, text);
+            const msg = opts.reschedule ? 'Пробный перенесён' : 'Записан на пробный и добавлен в «Пробные»';
+            toast(msg, wa ? { action: 'Отправить в WhatsApp', onAction: () => window.open(wa, '_blank') } : {});
+          }
         } catch { upd(); }
       };
-      drawSlots();
+      drawSlots(isEdit);
     },
   });
 }
@@ -1455,15 +1185,15 @@ function openBooking(id) {
 const HOURS = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00'];
 
 function openEnroll(src) {
-  const l = src.leadId ? leadById(src.leadId) : null;
-  const tr = src.trial || (l && l.trialDate ? trialOfLead(l) : null);
+  const tr = src.trial || null;
+  const fb = src.fallback || {};
   const init = {
-    teacher: src.teacher || (l && l.teacher) || (tr && tr.teacher) || '',
-    name: (l && l.name) || (tr && tr.name) || '',
-    phone: (l && l.phone) || (tr && tr.phone) || '',
-    grade: (l && l.grade) || (tr && tr.grade) || '',
-    onl: (l && l.format) || (tr && tr.format) || 'Офлайн',
-    time: (l && l.trialTime) || (tr && tr.time) || '',
+    teacher: src.teacher || (tr && tr.teacher) || '',
+    name: (tr && tr.name) || fb.name || '',
+    phone: (tr && tr.phone) || fb.phone || '',
+    grade: (tr && tr.grade) || '',
+    onl: (tr && tr.format) || 'Офлайн',
+    time: (tr && tr.time) || '',
   };
   const sh = openSheet((sh) => {
     const m = sh.data.meta;
@@ -1518,7 +1248,7 @@ function openEnroll(src) {
         const b = $('button[type=submit]', f);
         b.disabled = true; b.textContent = 'Записываю в Базу…';
         try {
-          const r = await run('enroll', { leadId: l ? l.id : '', student, force: !!force });
+          const r = await run('enroll', { trialRow: tr ? tr.row : '', taskId: src.taskId || '', student, force: !!force });
           if (r.duplicate) {
             b.disabled = false; b.textContent = 'Добавить в Базу';
             if (confirm(`У преподавателя ${r.duplicate.teacher} уже есть «${r.duplicate.name}» (строка ${r.duplicate.row}). Это другой ученик? Добавить всё равно?`)) send(true);
@@ -1635,60 +1365,21 @@ function askDeleteTrial(tr) {
   if (tr.result) text += `<br>Итог «${esc(tr.result)}» удалится вместе с ним${tr.result === 'Записался' ? ' — и 200 сом за запись в «Зарплатах»' : ''}.`;
   confirmSheet({
     title: 'Удалить пробный?', text, ok: 'Удалить пробный',
-    onOk: () => run('deleteTrial', { row: tr.row, phone: tr.phone, date: tr.date }, () => {
-      S.d.trials = S.d.trials.filter((x) => x.row !== tr.row);
-    }).then(() => toast('Пробный удалён')).catch(() => {}),
-  });
-}
-
-function askDeleteLead(l) {
-  if (!l) return;
-  const tasks = S.d.tasks.filter((t) => t.leadId === l.id && !t.done && !isJunk(t)).length;
-  const since = addDays((l.created || nowS()).slice(0, 10), -14);
-  const p = normPhone(l.phone);
-  const trials = p.length >= 11 ? S.d.trials.filter((t) => normPhone(t.phone) === p && t.date >= since) : [];
-  const text = `${esc(leadLabel(l))}${l.phone ? ' · ' + esc(prettyPhone(l.phone)) : ''}.<br>Удалятся карточка${tasks ? `, история и ${tasks} ${plural(tasks, ['задача', 'задачи', 'задач'])}` : ' и история'}. Вернуть будет нельзя.`;
-  confirmSheet({
-    title: 'Удалить лида?', text, ok: 'Удалить лида',
-    checkbox: trials.length ? {
-      label: `Удалить и ${plural(trials.length, ['его пробный', 'его пробные', 'его пробные'])} из таблицы «Пробные»: ${trials.map((t) => `${esc(dayLabel(t.date))} ${esc(t.time)}`).join(', ')}`,
-      checked: false,
-    } : null,
-    onOk: (withTrials) => {
+    onOk: () => {
       stack.slice().forEach((sh) => sh.close());
-      run('deleteLead', { id: l.id, withTrials }, () => {
-        S.d.leads = S.d.leads.filter((x) => x.id !== l.id);
-        S.d.tasks = S.d.tasks.filter((t) => t.leadId !== l.id);
-        if (withTrials) S.d.trials = S.d.trials.filter((t) => !trials.includes(t));
-      }).then(() => toast('Лид удалён')).catch(() => {});
-    },
-  });
-}
-
-/* ---------- Отказ ---------- */
-
-function openLost(id) {
-  const l = leadById(id);
-  openSheet(() => sheetHead('Причина отказа') + `
-    <div class="chips">${radios('reason', listSetting('Причины отказа'), '')}</div>
-    <div class="field"><input class="input" id="f-reason" placeholder="Или напишите своими словами"></div>
-    <div class="sheet-foot"><button class="btn primary lg" id="lostBtn">Перенести в «Отказ»</button></div>`, {
-    small: true,
-    after: (sh) => {
-      $('#lostBtn', sh.panel).onclick = () => {
-        const r = ($('#f-reason', sh.panel).value.trim()) || ($('input[name=reason]:checked', sh.panel) || {}).value || '';
-        sh.close();
-        run('moveLead', { id, stage: 'Отказ', lostReason: r }, () => { l.stage = 'Отказ'; l.lostReason = r; }).catch(() => {});
-      };
+      run('deleteTrial', { row: tr.row, phone: tr.phone, date: tr.date }, () => {
+        S.d.trials = S.d.trials.filter((x) => x.row !== tr.row);
+        if (typeof AR !== 'undefined' && AR.list) AR.list = AR.list.filter((x) => x.row !== tr.row);
+      }).then(() => toast('Пробный удалён')).catch(() => {});
     },
   });
 }
 
 /* ---------- Задача ---------- */
 
-function openTask(taskId, leadId) {
+function openTask(taskId, trialRow) {
   const t = taskId ? S.d.tasks.find((x) => x.id === taskId) : null;
-  const lead = leadById(leadId || (t && t.leadId));
+  const tr = trialRow ? trialByRow(Number(trialRow)) : (t && parseTrialRef(t.leadId) ? trialByRow(parseTrialRef(t.leadId).row) : null);
   const now = new Date();
   const presets = [
     ['Через час', dtStr(new Date(now.getTime() + 3600000))],
@@ -1698,15 +1389,17 @@ function openTask(taskId, leadId) {
     ['Через неделю', addDays(todayS(), 7) + 'T11:00'],
   ];
   const defDue = t ? t.due : presets[2][1];
+  const defOwner = t ? t.owner || me() : (tr && tr.who && S.d.users.includes(tr.who) ? tr.who : me());
+  const sub = tr ? trialLabel(tr) : (t && t.leadName) || '';
   openSheet(() => sheetHead(t ? 'Задача' : 'Новая задача') + `
-    ${lead ? `<p class="hint" style="margin-top:0">${esc(leadLabel(lead))}</p>` : ''}
+    ${sub ? `<p class="hint" style="margin-top:0">${esc(sub)}</p>` : ''}
     <div class="field"><label for="f-title">Что сделать</label>
       <input class="input" id="f-title" value="${esc(t ? t.title : '')}" placeholder="Например, позвонить маме">
       ${t ? '' : `<div class="chips" style="margin-top:8px">${TASK_IDEAS.map((x) => `<button type="button" class="chip-btn" data-idea="${esc(x)}">${esc(x)}</button>`).join('')}</div>`}</div>
     <div class="field"><span class="lbl">Когда</span>
       <div class="chips" style="margin-bottom:8px">${presets.map(([lb, v]) => `<button type="button" class="chip-btn" data-due="${v}">${lb}</button>`).join('')}</div>
       <input class="input" id="f-due" type="datetime-local" value="${esc(defDue)}"></div>
-    <div class="field"><span class="lbl">Кто делает</span><div class="seg">${radios('owner', S.d.users, t ? t.owner || me() : (lead && lead.owner) || me())}</div></div>
+    <div class="field"><span class="lbl">Кто делает</span><div class="seg">${radios('owner', S.d.users, defOwner)}</div></div>
     ${t ? `<div class="field"><button type="button" class="link-btn danger" id="delTask">${ic('trash', 2)}Удалить задачу</button></div>` : ''}
     <div class="sheet-foot btn-row">
       ${t && !t.done ? '<button class="btn lg ok" id="doneBtn" style="flex:0 0 auto;width:auto;padding:0 18px">Выполнено</button>' : ''}
@@ -1730,7 +1423,11 @@ function openTask(taskId, leadId) {
         const title = $('#f-title', p).value.trim();
         if (!title) return toast('Напишите, что сделать', { err: true });
         const task = { title, due: $('#f-due', p).value.slice(0, 16), owner: ($('input[name=owner]:checked', p) || {}).value || me() };
-        if (t) task.id = t.id; else if (lead) { task.leadId = lead.id; task.leadName = leadLabel(lead); }
+        if (t) task.id = t.id;
+        else if (tr) {
+          task.leadId = 'tr:' + tr.row + (tr.phone ? ':' + tr.phone : '');
+          task.leadName = trialLabel(tr);
+        }
         const b = $('#saveTask', p);
         b.disabled = true;
         try { await run('saveTask', { task }); sh.close(); toast(t ? 'Сохранено' : 'Задача создана'); } catch { b.disabled = false; }
@@ -1765,21 +1462,18 @@ const ACT = {
     if (S.view === 'students') smLoad(true);
     if (S.view === 'trials') arLoad(true);
   },
-  fabNew() { if (S.view === 'students') openEnroll({ teacher: SM.teacher }); else openLeadForm(); },
-  allTrials() { S.view = 'trials'; window.scrollTo(0, 0); render({ anim: 'left' }); },
+  fabNew() {
+    if (S.view === 'students') openEnroll({ teacher: SM.teacher });
+    else if (S.view === 'tasks') openTask();
+    else openBookTrial();
+  },
+  allTrials() { ACT.tab({ dataset: { v: 'trials' } }); },
   reload() { location.reload(); },
   close(el) { const sh = sheetOf(el); if (sh) sh.close(); },
-  newLead() { openLeadForm(); },
-  lead(el) { openLead(el.dataset.id); },
-  editLead(el) { openLeadForm(el.dataset.id); },
-  stage(el) {
-    const v = el.dataset.v;
-    if (v === S.stage) return;
-    const dir = STAGES.indexOf(v) > STAGES.indexOf(S.stage) ? 'left' : 'right';
-    S.stage = v;
-    redrawBoard(dir, true);
-  },
-  mine() { S.mine = !S.mine; render({ anim: 'soft' }); },
+  newTrial() { openBookTrial(); },
+  editTrial(el) { const tr = trialByRow(Number(el.dataset.row)); if (tr) openBookTrial({ edit: tr }); },
+  rescheduleTrial(el) { const tr = trialByRow(Number(el.dataset.row)); if (tr) openBookTrial({ reschedule: tr }); },
+  rebookTrial(el) { const tr = trialByRow(Number(el.dataset.row)); if (tr) openBookTrial({ prefill: tr }); },
   allTasks(el) {
     const v = el.dataset.v === '1';
     if (v === S.allTasks) return;
@@ -1787,7 +1481,7 @@ const ACT = {
     render({ anim: 'soft' });
   },
   task(el) { openTask(el.dataset.id); },
-  addTask(el) { openTask(null, el.dataset.lead); },
+  addTask(el) { openTask(null, el.dataset.trial); },
   taskDone(el) {
     const t = S.d.tasks.find((x) => x.id === el.dataset.id);
     if (!t) return;
@@ -1801,29 +1495,39 @@ const ACT = {
     buzz(12);
     wait(reduced() ? 0 : 340).then(() => collapseOut(row)).then(() => setDone(t.id, true));
   },
-  toStage(el) {
-    const l = leadById(el.dataset.id), v = el.dataset.v;
-    const row = el.closest('#view .row');
-    if (row && v !== 'Пробный' && v !== 'Отказ') {
-      row.classList.add('completing');
-      collapseOut(row).then(() => changeStage(l, v));
-      return;
-    }
-    changeStage(l, v);
+  enroll(el) {
+    const t = el.dataset.task ? S.d.tasks.find((x) => x.id === el.dataset.task) : null;
+    const ref = t && parseTrialRef(t.leadId);
+    const tr = el.dataset.trial ? trialByRow(Number(el.dataset.trial)) : (ref ? trialByRow(ref.row) : null);
+    openEnroll({
+      trial: tr,
+      fallback: !tr && t ? { name: (t.leadName || '').split(',')[0].trim(), phone: (ref && ref.phone) || '' } : null,
+      taskId: el.dataset.task || '',
+    });
   },
-  book(el) { openBooking(el.dataset.id); },
-  enroll(el) { openEnroll({ leadId: el.dataset.lead }); },
   trialMenu(el) {
-    const tr = S.d.trials.find((x) => x.row === Number(el.dataset.row));
+    const tr = trialByRow(Number(el.dataset.row));
     if (!tr) return;
-    const lead = leadByPhone(tr.phone);
-    const items = [];
-    if (lead) items.push({ label: 'Открыть карточку лида', onPick: () => openLead(lead.id) });
+    const items = [
+      { label: 'Открыть пробный', onPick: () => openSheet(() => arSheet(tr.row), { live: true }) },
+      { label: 'Изменить', onPick: () => openBookTrial({ edit: tr }) },
+    ];
+    if (!tr.result) items.push({ label: 'Перенести', onPick: () => openBookTrial({ reschedule: tr }) });
     items.push({ label: 'Удалить пробный', cls: 'danger', onPick: () => askDeleteTrial(tr) });
     pick(esc(`Пробный ${dayLabel(tr.date)}, ${tr.time} · ${tr.name || 'без имени'}`), items);
   },
-  trialDel(el) { askDeleteTrial(S.d.trials.find((x) => x.row === Number(el.dataset.row))); },
-  deleteLead(el) { askDeleteLead(leadById(el.dataset.id)); },
+  trialDel(el) { const tr = trialByRow(Number(el.dataset.row)); if (tr) askDeleteTrial(tr); },
+  trialWa(el) {
+    const tr = trialByRow(Number(el.dataset.row));
+    if (!tr || !waUrl(tr.phone)) return toast('Нет телефона', { err: true });
+    const open = (text) => window.open(waUrl(tr.phone, text), '_blank');
+    const v = trialVars(tr);
+    pick('WhatsApp', [
+      { label: 'Просто открыть чат', onPick: () => open('') },
+      { label: 'Напоминание о пробном', note: dayLabel(tr.date) + ', ' + tr.time, onPick: () => open(tpl('напоминание о пробном', v)) },
+      { label: 'После пробного', onPick: () => open(tpl('после пробного', v)) },
+    ]);
+  },
   pay(el) { const p = S.d.payments.find((x) => x.key === el.dataset.key); if (p) openPayment(p); },
   call(el) { const u = telUrl(el.dataset.phone); if (u) location.href = u; else toast('Нет телефона', { err: true }); },
   open(el) { if (el.dataset.url) window.open(el.dataset.url, '_blank'); },
@@ -1843,38 +1547,12 @@ const ACT = {
       window.prompt('Скопируйте приглашение:', text);
     }
   },
-  leadStage(el) {
-    const l = leadById(el.dataset.id);
-    pick('Этап', STAGES.map((s) => ({ label: s, dot: true, cls: STAGE_CLS[s], cur: s === l.stage, onPick: () => changeStage(l, s) })));
-  },
-  waLead(el) {
-    const l = leadById(el.dataset.id);
-    if (!waUrl(l.phone)) return toast('Нет телефона', { err: true });
-    const open = (text) => window.open(waUrl(l.phone, text), '_blank');
-    const items = [{ label: 'Просто открыть чат', onPick: () => open('') }, { label: 'Приветствие', onPick: () => open(tpl('приветствие', {})) }];
-    if (l.trialDate) {
-      const v = trialVars({ ...l, date: l.trialDate, time: l.trialTime });
-      items.push({ label: 'Напоминание о пробном', note: dayLabel(l.trialDate) + ', ' + l.trialTime, onPick: () => open(tpl('напоминание о пробном', v)) });
-      items.push({ label: 'После пробного', onPick: () => open(tpl('после пробного', v)) });
-    }
-    pick('WhatsApp', items);
-  },
-  addNote(el) {
-    const sh = sheetOf(el);
-    const ta = $('#note', sh.panel);
-    const text = ta.value.trim();
-    if (!text) return;
-    ta.value = '';
-    run('addNote', { id: el.dataset.id, text }).then(() => toast('Заметка добавлена')).catch(() => { ta.value = text; });
-  },
   trialRes(el) {
     const row = Number(el.dataset.row), v = el.dataset.v;
-    const tr = S.d.trials.find((x) => x.row === row);
-    const go = () => run('setTrialResult', { row, result: v, phone: el.dataset.phone, leadId: el.dataset.lead }, () => { if (tr) tr.result = v; })
-      .then((r) => {
-        const nl = r.leads && r.leads[0];
-        if (v === 'Записался') openEnroll({ leadId: nl ? nl.id : '', trial: tr });
-        else if (nl) toast(`Итог сохранён · ${nl.stage}`);
+    const tr = trialByRow(row);
+    const go = () => run('setTrialResult', { row, result: v, phone: el.dataset.phone }, () => { if (tr) tr.result = v; })
+      .then(() => {
+        if (v === 'Записался') openEnroll({ trial: tr });
         else toast('Итог записан в «Пробные»');
       }).catch(() => {});
     const rowEl = el.closest('#view .row');
@@ -1885,8 +1563,8 @@ const ACT = {
     } else go();
   },
   dismiss(el) {
-    const { key, title, lead } = el.dataset;
-    const go = () => run('dismiss', { key, title, leadId: lead || '' }, () => {
+    const { key, title } = el.dataset;
+    const go = () => run('dismiss', { key, title }, () => {
       S.d.tasks.push({ id: 'tmp-' + Date.now(), key, title, done: true, doneAt: nowS() });
     }).catch(() => {});
     buzz(8);
@@ -1956,11 +1634,12 @@ document.addEventListener('keydown', (e) => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '') || (e.target && e.target.isContentEditable);
   if (typing || e.metaKey || e.ctrlKey || e.altKey || !S.d || stack.length || isTeacher()) return;
   const k = e.key.toLowerCase();
-  if (k === 'n' || k === 'т') { e.preventDefault(); openLeadForm(); }
+  if (k === 'n' || k === 'т') { e.preventDefault(); openBookTrial(); }
   if (e.key === '/') {
     e.preventDefault();
-    if (S.view !== 'board') { S.view = 'board'; lsSet('espada-view', 'board'); render(); }
-    const q = $('#q'); if (q) q.focus();
+    if (S.view === 'trials') { const aq = $('#aq'); if (aq) aq.focus(); return; }
+    if (S.view !== 'students') { S.view = 'students'; lsSet('espada-view', 'students'); render(); }
+    const sq = $('#sq'); if (sq) sq.focus();
   }
 });
 
@@ -1992,7 +1671,7 @@ function boot() {
   applySkin(lsGet('espada-skin'));
   if (!CFG.demo && !(CFG.api && CFG.key)) return renderLogin();
   addChrome();
-  try { const c = JSON.parse(lsGet(cacheKey()) || 'null'); if (c && (c.leads || c.role === 'teacher')) { S.d = c; render({ anim: 'fade' }); } } catch { /* кеш повреждён */ }
+  try { const c = JSON.parse(lsGet(cacheKey()) || 'null'); if (c && (c.trials || c.role === 'teacher')) { S.d = c; render({ anim: 'fade' }); } } catch { /* кеш повреждён */ }
   if (!S.d) renderSkeleton();
   load();
   initGestures();
@@ -2008,10 +1687,5 @@ function boot() {
     if (document.visibilityState === 'visible') checkUpdate();
   });
   setInterval(() => { if (document.visibilityState === 'visible') load(true); }, 5 * 60000);
-  let wasWide = matchMedia('(min-width: 1000px)').matches;
-  addEventListener('resize', () => {
-    const w = matchMedia('(min-width: 1000px)').matches;
-    if (w !== wasWide) { wasWide = w; if (S.view === 'board') render(); }
-  });
 }
 boot();

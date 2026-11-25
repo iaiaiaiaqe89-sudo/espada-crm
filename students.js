@@ -70,7 +70,10 @@ async function arLoad(force) {
     AR.loading = false;
     S.busy--; updBusy();
   }
-  if (!isTeacher() && S.view === 'trials') render();
+  if (!isTeacher()) {
+    if (S.view === 'trials') render();
+    rerenderSheets();
+  }
 }
 /** В «Базе» что-то поменялось (запись, оплата, итог пробного) — при следующем показе списки обновятся. */
 function stDirty() {
@@ -200,22 +203,15 @@ function stSheet(teacher, name, row) {
   const fzChips = fz.length ? `<div class="att-hist">${fz.slice(0, 12).map((f) => `<span class="ah fz">${ic('snow', 2.2)}${esc(dayLabel(f.d))}${f.k > 1 ? ' ×' + f.k : ''}
       ${tCanFreeze(f.d) ? `<button data-act="tFreeze" data-teacher="${esc(ctx.teacher)}" data-date="${esc(f.d)}" data-name="${esc(s.name)}" data-on="0" aria-label="Снять заморозку">${ic('x', 2.6)}</button>` : ''}</span>`).join('')}</div>` : '';
 
-  // контакты и откуда пришёл
-  const lead = d && d.lead;
-  const lid = lead && lead.id && ctx.mgr && typeof leadById === 'function' && leadById(lead.id) ? lead.id : '';
+  // контакты
   const contacts = `<div class="list kv">
       <div class="k">Телефон</div><div>${phone ? `<a href="${esc(telUrl(s.phone))}">${esc(prettyPhone(s.phone))}</a>` : 'не указан'}</div>
-      ${lead && lead.contact ? `<div class="k">Кто пишет</div><div>${esc(lead.contact)}</div>` : ''}
-      ${lead && lead.source ? `<div class="k">Откуда узнали</div><div>${esc(lead.source)}</div>` : ''}
-      ${lead && lead.created ? `<div class="k">Заявка</div><div>${esc(tLong(lead.created.slice(0, 10)))} ${lead.created.slice(0, 4)}</div>` : ''}
-      ${lead && lead.owner ? `<div class="k">Вёл заявку</div><div>${esc(lead.owner)}</div>` : ''}
     </div>
-    ${phone && !ctx.mgr ? `<div class="st-foot">${waBtn(s.phone, '', 'Написать')}${telBtn(s.phone)}</div>` : ''}
-    ${lid ? `<div class="st-foot"><button class="btn" data-act="lead" data-id="${esc(lid)}">Открыть заявку</button></div>` : ''}`;
+    ${phone && !ctx.mgr ? `<div class="st-foot">${waBtn(s.phone, '', 'Написать')}${telBtn(s.phone)}</div>` : ''}`;
 
   // пробные
   const trials = d ? d.trials.slice().sort((a, b) => (a.date + a.time < b.date + b.time ? 1 : -1)) : [];
-  const trialHtml = trials.length ? `<div class="list">${trials.slice(0, 3).map((t) => `<div class="row">
+  const trialHtml = trials.length ? `<div class="list">${trials.slice(0, 3).map((t) => `<div class="row${ctx.mgr ? ` tap" data-act="arOpen" data-row="${t.row}` : ''}">
       <div class="tl-ic">${ic('trial', 2)}</div>
       <div class="main"><div class="title">${esc(tLong(t.date))}, ${esc(t.time)} ${t.result ? `<span class="pill ${RES_CLS[t.result] || ''}">${esc(t.result)}</span>` : ''}</div>
         <div class="meta">${esc([t.teacher, (t.format || '').toLowerCase()].filter(Boolean).join(' · '))}</div>
@@ -257,7 +253,7 @@ function stSheet(teacher, name, row) {
     ${!ctx.mgr ? `<div class="sheet-foot"><button class="btn lg" data-act="tMsg" data-student="${esc(s.name)}">${ic('send', 2)}Сообщить менеджеру</button></div>` : ''}`;
 }
 
-/** Лента событий: оплаты, заморозки, пробные, заявка — от новых к старым. */
+/** Лента событий: оплаты, заморозки, пробные — от новых к старым. */
 function stHistory(c, s) {
   if (!c || (!c.data && !c.err)) return `<div class="list">${loadingState('Загружаю историю…')}</div>`;
   if (!c.data) return `<div class="list">${emptyState(c.err, 'alert')}</div>`;
@@ -266,7 +262,6 @@ function stHistory(c, s) {
     title: `${p.type} · ${money(p.sum)} сом${p.undone ? ' (отменена)' : ''}`, meta: p.who }));
   d.freezes.forEach((f) => ev.push({ at: f.d, ic: 'snow', title: `Заморозка${f.k > 1 ? ' ×' + f.k : ''}`, meta: f.who ? 'отметил(а) ' + f.who : '' }));
   d.trials.forEach((t) => ev.push({ at: t.date + 'T' + (t.time || '00:00'), ic: 'trial', title: `Пробный${t.result ? ' — ' + t.result.toLowerCase() : ''}`, meta: t.teacher }));
-  if (d.lead && d.lead.created) ev.push({ at: d.lead.created, ic: 'user', title: 'Заявка' + (d.lead.source ? ' · ' + d.lead.source : ''), meta: d.lead.contact || '' });
   if (s.payDate && !d.payments.some((p) => !p.undone && p.at.slice(0, 10) === s.payDate)) {
     ev.push({ at: s.payDate + 'T00:00', ic: 'wallet', title: `Оплата абонемента${s.paid ? ' · ' + money(s.paid) + ' сом' : ''}`, meta: 'дата оплаты в «Базе»' });
   }
@@ -390,13 +385,16 @@ function arInPeriod() {
   return (AR.list || []).filter((x) => x.date >= a && x.date <= b);
 }
 function arFiltered() {
-  const q = AR.q.trim().toLowerCase(), qd = q.replace(/\D/g, '');
-  return (q ? AR.list || [] : arInPeriod()).filter((x) => {
+  const t = todayS(), q = AR.q.trim().toLowerCase(), qd = q.replace(/\D/g, '');
+  const src = AR.result === '+' || q ? AR.list || [] : arInPeriod();
+  return src.filter((x) => {
     if (AR.teacher && x.teacher !== AR.teacher) return false;
-    if (AR.result === '—' ? x.result || x.date > todayS() : AR.result && x.result !== AR.result) return false;
+    if (AR.result === '+' && (x.date < t || x.result)) return false;
+    else if (AR.result === '—' && (x.result || x.date >= t)) return false;
+    else if (AR.result && AR.result !== '+' && AR.result !== '—' && x.result !== AR.result) return false;
     if (!q) return true;
     return (x.name || '').toLowerCase().includes(q) || (qd.length >= 3 && normPhone(x.phone).includes(qd.replace(/^0/, '')));
-  }).sort((a, b) => (a.date + a.time < b.date + b.time ? 1 : -1));
+  }).sort((a, b) => ((a.date + a.time < b.date + b.time ? -1 : 1) * (AR.result === '+' ? 1 : -1)));
 }
 /** Итоги: только прошедшие пробные, «Перенос» не считаем. */
 function arCount(list) {
@@ -410,9 +408,10 @@ function arCount(list) {
 const pctTxt = (c) => (c.pct == null ? '—' : c.pct + '%');
 
 function arRow(x) {
-  const t = todayS();
+  const t = todayS(), tm = addDays(t, 1);
   const pill = x.result ? `<span class="pill ${RES_CLS[x.result] || ''}">${esc(x.result)}</span>`
-    : x.date < t ? '<span class="pill red">нет итога</span>' : x.date === t ? '<span class="pill amber">сегодня</span>' : '<span class="pill">впереди</span>';
+    : x.date < t ? '<span class="pill red">нет итога</span>' : x.date === t ? '<span class="pill amber">сегодня</span>'
+      : x.date === tm ? '<span class="pill">завтра</span>' : '<span class="pill">впереди</span>';
   return `<div class="row tap" data-act="arOpen" data-row="${x.row}">
     <div class="time-col ar-date"><b>${parseD(x.date).getDate()}</b><span>${MON[parseD(x.date).getMonth()]}</span></div>
     <div class="main">
@@ -424,9 +423,24 @@ function arRow(x) {
 }
 function arListInner() {
   if (!AR.list) return `<div class="list">${AR.err ? emptyState(AR.err, 'alert') : loadingState('Загружаю все пробные…')}</div>`;
+  const t = todayS(), q = AR.q.trim();
   const items = arFiltered();
-  if (!items.length) return `<div class="list">${emptyState(AR.q.trim() ? `Ничего не нашлось по «${AR.q.trim()}»` : 'За этот период пробных нет', 'trial')}</div>`;
-  const shown = items.slice(0, AR.shown);
+  if (AR.result === '+') {
+    if (!items.length) return `<div class="list">${emptyState(q ? `Ничего не нашлось по «${q}»` : 'Предстоящих пробных нет', 'trial')}</div>`;
+    const shown = items.slice(0, AR.shown);
+    return tSec('Предстоящие', items.length, `<div class="list">${shown.map(arRow).join('')}</div>`)
+      + (items.length > shown.length ? `<button type="button" class="more-btn ar-more" data-act="arMore">Показать ещё · ${items.length - shown.length}${ic('chev', 2.4)}</button>` : '');
+  }
+  const splitUpcoming = !q && AR.result === '' && AR.period !== 'prev';
+  const upcoming = splitUpcoming
+    ? (AR.list || []).filter((x) => x.date >= t && !x.result && (!AR.teacher || x.teacher === AR.teacher))
+      .sort((a, b) => (a.date + a.time < b.date + b.time ? -1 : 1))
+    : [];
+  const rest = splitUpcoming ? items.filter((x) => !(x.date >= t && !x.result)) : items;
+  if (!upcoming.length && !rest.length) {
+    return `<div class="list">${emptyState(q ? `Ничего не нашлось по «${q}»` : 'За этот период пробных нет', 'trial')}</div>`;
+  }
+  const shown = rest.slice(0, AR.shown);
   const groups = [];
   shown.forEach((x) => {
     const ym = x.date.slice(0, 7);
@@ -434,9 +448,10 @@ function arListInner() {
     if (!g || g.ym !== ym) groups.push(g = { ym, list: [] });
     g.list.push(x);
   });
-  const total = (ym) => items.filter((x) => x.date.slice(0, 7) === ym).length;
-  return groups.map((g) => tSec(esc(monthTitle(g.ym)), total(g.ym), `<div class="list">${g.list.map(arRow).join('')}</div>`)).join('')
-    + (items.length > shown.length ? `<button type="button" class="more-btn ar-more" data-act="arMore">Показать ещё · ${items.length - shown.length}${ic('chev', 2.4)}</button>` : '');
+  const total = (ym) => rest.filter((x) => x.date.slice(0, 7) === ym).length;
+  return (upcoming.length ? tSec('Предстоящие', upcoming.length, `<div class="list">${upcoming.map(arRow).join('')}</div>`) : '')
+    + groups.map((g) => tSec(esc(monthTitle(g.ym)), total(g.ym), `<div class="list">${g.list.map(arRow).join('')}</div>`)).join('')
+    + (rest.length > shown.length ? `<button type="button" class="more-btn ar-more" data-act="arMore">Показать ещё · ${rest.length - shown.length}${ic('chev', 2.4)}</button>` : '');
 }
 function redrawArchive() {
   const w = $('#arWrap');
@@ -446,12 +461,14 @@ function redrawArchive() {
 
 function viewTrials() {
   arLoad();
+  const t = todayS();
   const list = arInPeriod();
   const c = arCount(AR.teacher ? list.filter((x) => x.teacher === AR.teacher) : list);
+  const upcomingCount = (AR.list || []).filter((x) => x.date >= t && !x.result && (!AR.teacher || x.teacher === AR.teacher)).length;
   const teachers = [...new Set([...(S.d.teachers || []), ...(AR.list || []).map((x) => x.teacher).filter(Boolean)])];
   const stat = (n, label, res, warn, cls = '') => `<button type="button" class="stat ${warn ? 'warn' : ''} ${cls}" data-act="arResult" data-v="${res}">
     <b>${n}</b><span>${label}</span></button>`;
-  const byT = teachers.map((t) => [t, arCount(list.filter((x) => x.teacher === t))]).filter(([, v]) => v.n);
+  const byT = teachers.map((tc) => [tc, arCount(list.filter((x) => x.teacher === tc))]).filter(([, v]) => v.n);
   const months = [];
   for (let i = 0; i < 6; i++) {
     const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
@@ -461,26 +478,28 @@ function viewTrials() {
   }
   const table = (head, rows) => `<div class="list"><table class="table"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const tTable = byT.length ? tSec('По преподавателям', null, table(['Преподаватель', 'Пробных', 'Записались', '%'],
-    byT.sort((a, b) => b[1].n - a[1].n).map(([t, v]) => `<tr class="tap ${AR.teacher === t ? 'on' : ''}" data-act="arTeacher" data-v="${esc(t)}"><td>${esc(t)}</td><td>${v.n}</td><td>${v.won}</td><td>${pctTxt(v)}</td></tr>`).join(''))) : '';
+    byT.sort((a, b) => b[1].n - a[1].n).map(([tc, v]) => `<tr class="tap ${AR.teacher === tc ? 'on' : ''}" data-act="arTeacher" data-v="${esc(tc)}"><td>${esc(tc)}</td><td>${v.n}</td><td>${v.won}</td><td>${pctTxt(v)}</td></tr>`).join(''))) : '';
   const mTable = AR.list ? tSec('По месяцам', null, table(['Месяц', 'Пробных', 'Записались', '%'],
     months.map(([ym, v]) => `<tr><td>${esc(monthTitle(ym))}</td><td>${v.n}</td><td>${v.won}</td><td>${pctTxt(v)}</td></tr>`).join(''))) : '';
   return `<div class="hello">
-      ${stat(c.n, plural(c.n, ['пробный', 'пробных', 'пробных']), '')}
-      ${stat(pctTxt(c), 'записались', 'Записался')}
-      ${stat(c.noShow, 'не пришли', 'Не пришёл')}
+      ${stat(upcomingCount, 'впереди', '+')}
       ${stat(c.open, 'без итога', '—', c.open)}
+      ${stat(pctTxt(c), 'записались', 'Записался')}
+      ${stat(c.n, plural(c.n, ['пробный', 'пробных', 'пробных']), '')}
     </div>
     <div class="toolbar">
       <label class="search">${ic('search')}<input id="aq" type="search" placeholder="Имя или телефон — по всем пробным" value="${esc(AR.q)}" autocomplete="off"></label>
+      <button class="toggle" data-act="newTrial">+ Пробный</button>
     </div>
     <div class="st-filters">
       <div class="seg t-status">${AR_PERIODS.map(([v, l]) => `<button type="button" class="chip-btn ${AR.period === v ? 'on' : ''}" data-act="arPeriod" data-v="${v}">${l}</button>`).join('')}</div>
       <div class="chips nowrap st-teachers">
         <button type="button" class="chip-btn ${!AR.teacher ? 'on' : ''}" data-act="arTeacher" data-v="">Все</button>
-        ${teachers.map((t) => `<button type="button" class="chip-btn ${AR.teacher === t ? 'on' : ''}" data-act="arTeacher" data-v="${esc(t)}">${esc(t)}</button>`).join('')}
+        ${teachers.map((tc) => `<button type="button" class="chip-btn ${AR.teacher === tc ? 'on' : ''}" data-act="arTeacher" data-v="${esc(tc)}">${esc(tc)}</button>`).join('')}
       </div>
       <div class="chips nowrap st-teachers">
         <button type="button" class="chip-btn ${!AR.result ? 'on' : ''}" data-act="arResult" data-v="">Все итоги</button>
+        <button type="button" class="chip-btn ${AR.result === '+' ? 'on' : ''}" data-act="arResult" data-v="+">Впереди</button>
         ${[...AR_RESULTS, '—'].map((r) => `<button type="button" class="chip-btn ${AR.result === r ? 'on' : ''}" data-act="arResult" data-v="${esc(r)}">${r === '—' ? 'Без итога' : esc(r)}</button>`).join('')}
       </div>
     </div>
@@ -488,46 +507,63 @@ function viewTrials() {
       <div>${tTable}<div class="desk-only">${mTable}</div></div>
       <div id="arWrap">${arListInner()}</div>
     </div>
-    <p class="hint">Здесь все пробные из листа «Пробные» за всё время. «В Базе» — ребёнок уже есть в «Базе учеников». Процент записавшихся считается по пробным с итогом, без переносов.</p>`;
+    <p class="hint">Здесь все пробные из листа «Пробные». «В Базе» — ребёнок уже есть в «Базе учеников». Процент записавшихся считается по прошедшим пробным с итогом, без переносов.</p>`;
 }
 
 function arSheet(row) {
-  const x = (AR.list || []).find((t) => t.row === row);
-  if (!x) return sheetHead('Пробный') + `<div class="list">${emptyState('Пробный не найден — обновите страницу', 'alert')}</div>`;
-  const lead = leadByPhone(x.phone);
+  const x = trialByRow(row);
+  if (!x) {
+    if (!AR.list && !AR.err) {
+      setTimeout(() => arLoad(), 0);
+      return sheetHead('Пробный') + `<div class="list">${loadingState('Загружаю пробный…')}</div>`;
+    }
+    return sheetHead('Пробный') + `<div class="list">${emptyState(AR.err || 'Пробный не найден — обновите страницу', 'alert')}</div>`;
+  }
   const t = todayS();
   const phone = waUrl(x.phone) ? x.phone : '';
+  const base = x.base || (SM.list && (
+    (normPhone(x.phone).length >= 11 && SM.list.find((s) => normPhone(s.phone) === normPhone(x.phone)))
+    || SM.list.find((s) => s.teacher === x.teacher && s.name.toLowerCase() === (x.name || '').toLowerCase())
+  )) || null;
+  const tasks = trialTasks(x.row);
   const head = `<div class="lead-head s-trial">
       <div class="ava" aria-hidden="true">${x.name ? esc(x.name.trim()[0]) : ic('trial', 2)}</div>
       <div class="lh"><div class="nm">${x.name ? esc(x.name) : 'Без имени'}</div>
         <div class="info">${x.result ? `<span class="pill ${RES_CLS[x.result] || ''}">${esc(x.result)}</span>` : ''}
           ${[/^\d+$/.test(x.grade) ? x.grade + ' класс' : x.grade, (x.format || '').toLowerCase()].filter(Boolean).map(esc).join(' · ')}</div></div>
     </div>`;
-  const quick = `<div class="quick t3">
-      <button class="wa" data-act="waTo" data-phone="${esc(x.phone)}" ${phone ? '' : 'disabled'}>${ic('wa', 1.8)}WhatsApp</button>
+  const quick = `<div class="quick">
+      <button class="wa" data-act="trialWa" data-row="${x.row}" ${phone ? '' : 'disabled'}>${ic('wa', 1.8)}WhatsApp</button>
       <button data-act="call" data-phone="${esc(x.phone)}" ${phone ? '' : 'disabled'}>${ic('phone', 1.8)}Позвонить</button>
-      ${x.base ? `<button data-act="stOpen" data-teacher="${esc(x.base.teacher)}" data-name="${esc(x.base.name)}">${ic('users', 1.8)}Ученик</button>`
-        : lead ? `<button data-act="lead" data-id="${esc(lead.id)}">${ic('user', 1.8)}Заявка</button>`
-          : `<button data-act="arEnroll" data-row="${x.row}">${ic('plus', 1.8)}В Базу</button>`}
+      <button data-act="addTask" data-trial="${x.row}">${ic('task', 1.8)}Задача</button>
+      ${base ? `<button data-act="stOpen" data-teacher="${esc(base.teacher)}" data-name="${esc(base.name)}">${ic('users', 1.8)}Ученик</button>`
+        : `<button data-act="arEnroll" data-row="${x.row}">${ic('plus', 1.8)}В Базу</button>`}
     </div>`;
   let res = '';
   if (x.date <= t) {
     res = tSec('Итог', null, `<div class="chips">${RESULTS.map((r) => `<button type="button" class="chip-btn ${x.result === r ? 'on' : ''}" data-act="arRes" data-row="${x.row}" data-v="${esc(r)}">${esc(r)}</button>`).join('')}</div>`);
   }
-  const enroll = x.result === 'Записался' && !x.base
+  const enroll = x.result === 'Записался' && !base
     ? `<section class="section"><div class="list"><div class="row"><div class="main"><div class="title">Записался, но в «Базе» его нет</div>
         <div class="meta">Добавьте ученика — он появится у преподавателя в расписании и в списке учеников.</div>
         <div class="actions"><button class="btn primary" data-act="arEnroll" data-row="${x.row}">Добавить в Базу</button></div></div></div></div></section>` : '';
+  const actFoot = !x.result
+    ? `<div class="st-foot"><button class="btn" data-act="rescheduleTrial" data-row="${x.row}">Перенести</button></div>`
+    : ['Перенос', 'Не пришёл', 'Думает'].includes(x.result)
+      ? `<div class="st-foot"><button class="btn" data-act="rebookTrial" data-row="${x.row}">Записать ещё раз</button></div>` : '';
   return sheetHead('') + head + quick + enroll + res + `
-    <section class="section"><div class="section-h"><h2>Занятие</h2></div><div class="list kv">
+    <section class="section"><div class="section-h"><h2>Занятие</h2><button class="link" data-act="editTrial" data-row="${x.row}">Изменить</button></div><div class="list kv">
       <div class="k">Когда</div><div>${esc(tDayTitle(x.date))}, ${esc(x.time)}</div>
       <div class="k">Преподаватель</div><div>${esc(x.teacher || '—')}</div>
+      <div class="k">Формат</div><div>${esc(x.format || '—')}</div>
       <div class="k">Телефон</div><div>${phone ? `<a href="${esc(telUrl(x.phone))}">${esc(prettyPhone(x.phone))}</a>` : '—'}</div>
       ${x.who ? `<div class="k">Записал(а)</div><div>${esc(x.who)}</div>` : ''}
-      ${x.base ? `<div class="k">В Базе</div><div>${esc(x.base.teacher)}${x.base.status && x.base.status !== 'Учится' ? ' · ' + esc(x.base.status.toLowerCase()) : ''}</div>` : ''}
-      ${lead ? `<div class="k">Заявка</div><div><a data-act="lead" data-id="${esc(lead.id)}">${esc(lead.stage)}${lead.source ? ' · ' + esc(lead.source) : ''}</a></div>` : ''}
-    </div></section>
-    ${x.comment ? tSec('Комментарий и отзыв преподавателя', null, `<div class="list"><div class="log">${esc(x.comment)}</div></div>`) : ''}`;
+      ${base ? `<div class="k">В Базе</div><div><a data-act="stOpen" data-teacher="${esc(base.teacher)}" data-name="${esc(base.name)}">${esc(base.teacher)}${base.status && base.status !== 'Учится' ? ' · ' + esc(base.status.toLowerCase()) : ''}</a></div>` : ''}
+    </div>${actFoot}</section>
+    ${tasks.length ? `<section class="section"><div class="section-h"><h2>Задачи</h2><button class="link" data-act="addTask" data-trial="${x.row}">+ Добавить</button></div>
+      <div class="list">${tasks.map((tk) => taskRow(tk, { inTrial: true })).join('')}</div></section>` : ''}
+    ${x.comment ? tSec('Комментарий и отзыв преподавателя', null, `<div class="list"><div class="log">${esc(x.comment)}</div></div>`) : ''}
+    <section class="section del-zone"><button class="btn danger del-btn" data-act="trialDel" data-row="${x.row}">${ic('trash', 2)}Удалить пробный</button></section>`;
 }
 
 /* ============================== Действия ============================== */
@@ -568,26 +604,29 @@ const ST_ACT = {
   arMore() { AR.shown += 100; redrawArchive(); },
   arRes(el) {
     const row = Number(el.dataset.row), v = el.dataset.v;
-    const x = (AR.list || []).find((t) => t.row === row);
+    const x = trialByRow(row);
     if (!x || x.result === v) return;
     const before = x.result;
-    x.result = v;
+    const touch = (val) => {
+      if (AR.list) { const a = AR.list.find((t) => t.row === row); if (a) a.result = val; }
+      if (S.d && S.d.trials) { const s = S.d.trials.find((t) => t.row === row); if (s) s.result = val; }
+    };
+    touch(v);
+    buzz(8);
     render(); rerenderSheets();
-    const lead = leadByPhone(x.phone);
-    run('setTrialResult', { row, result: v, phone: x.phone, leadId: lead ? lead.id : '' })
+    run('setTrialResult', { row, result: v, phone: x.phone })
       .then(() => {
         if (v === 'Записался' && !x.base) {
           const sh = sheetOf(el); if (sh) sh.close();
-          openEnroll({ leadId: lead ? lead.id : '', trial: x });
+          openEnroll({ trial: x });
         } else toast('Итог записан в «Пробные»');
       })
-      .catch(() => { x.result = before; render(); rerenderSheets(); });
+      .catch(() => { touch(before); render(); rerenderSheets(); });
   },
   arEnroll(el) {
-    const x = (AR.list || []).find((t) => t.row === Number(el.dataset.row));
+    const x = trialByRow(Number(el.dataset.row));
     if (!x) return;
     const sh = sheetOf(el); if (sh) sh.close();
-    const lead = leadByPhone(x.phone);
-    openEnroll({ leadId: lead ? lead.id : '', trial: x });
+    openEnroll({ trial: x });
   },
 };

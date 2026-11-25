@@ -2,16 +2,13 @@
 /* Демо-сервер: повторяет логику Apps Script в браузере на вымышленных данных. */
 
 const Demo = (() => {
-  const KEY = 'espada-demo-db';
+  const KEY = 'espada-demo-db-v2';
   const USERS = ['Алтынай', 'Билал'];
   const TEACHERS = ['Артур', 'Билал', 'Дмитрий', 'Алтынай', 'Алинур', 'Акбар'];
   const SETTINGS = {
-    'Источники': 'Instagram, WhatsApp, 2ГИС, Посоветовали, Реклама, Сайт, Ученик вернулся, Другое',
-    'Причины отказа': 'Дорого, Не подошло время, Далеко, Выбрали другое, Пропал / не отвечает, Другое',
     'Утренний план в (час)': '9',
     'Перезвонить «Думает» через (дней)': '2',
     'Снова напомнить об оплате через (дней)': '3',
-    'Шаблон: приветствие': 'Здравствуйте! Это центр математики «Эспада» 😊 Подскажите, пожалуйста, в каком классе учится ребёнок и какой формат удобнее — онлайн или офлайн?',
     'Шаблон: напоминание о пробном': 'Здравствуйте! Напоминаем о пробном занятии по математике: {дата} в {время}, {формат}. Ученик: {имя}. Ждём вас! 😊',
     'Шаблон: после пробного': 'Здравствуйте! Спасибо, что пришли на пробное занятие 😊 Как впечатления? Будем рады ответить на вопросы и подобрать удобную группу.',
     'Шаблон: продление': 'Здравствуйте! Напоминаем, что абонемент заканчивается {дата} (ученик: {имя}). Продлеваем? 🙂',
@@ -27,37 +24,16 @@ const Demo = (() => {
   const ruD = (s) => s.split('-').reverse().join('.');
   const norm = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.length === 10 && d[0] === '0') d = '996' + d.slice(1); return d; };
   const id = () => Math.random().toString(36).slice(2, 12);
-  const stamp = () => { const d = new Date(); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+  const gr = (g) => { g = String(g || '').trim(); return !g ? '' : /^\d+$/.test(g) ? g + ' кл' : g; };
+  const trialLabel = (t) => (t.name || t.phone || 'Без имени') + (t.grade ? ', ' + gr(t.grade) : '');
+  const trialRef = (t) => 'tr:' + t.row + (t.phone ? ':' + t.phone : '');
+  const parseTrialRef = (ref) => {
+    const m = String(ref || '').match(/^tr:(\d+)(?::(.*))?$/);
+    return m ? { row: Number(m[1]), phone: m[2] || '' } : null;
+  };
+  const AUTO_TRIAL_RE = /^(Добавить в «Базу учеников» и в расписание|Перезвонить после пробного|Не пришёл на пробный: узнать причину, предложить новую дату|Назначить новую дату пробного)$/;
 
   function seed() {
-    const L = (o) => ({ id: id(), created: ago(o.ago || 60), updated: ago(o.upd || o.ago || 60), stage: 'Новый', name: '', contact: '', phone: '',
-      grade: '', source: '', format: '', owner: 'Алтынай', trialDate: '', trialTime: '', teacher: '', trialResult: '', lostReason: '',
-      comment: '', log: '', ...o });
-    const leads = [
-      L({ name: 'Нурислам', phone: '0700000101', grade: '7', source: 'Instagram', ago: 25, contact: 'мама', comment: 'Спрашивали про подготовку к ОРТ заранее' }),
-      L({ name: '', phone: '0700000102', source: 'WhatsApp', ago: 70 }),
-      L({ name: 'Камила', phone: '0700000103', grade: '9', source: '2ГИС', ago: 200, format: 'Онлайн' }),
-      L({ name: 'Тимур', phone: '0700000104', grade: '5', source: 'Посоветовали', stage: 'В диалоге', ago: 1500, upd: 300, contact: 'папа' }),
-      L({ name: 'Элина', phone: '0700000105', grade: '11', source: 'Instagram', stage: 'В диалоге', ago: 3000, upd: 1600, owner: 'Билал' }),
-      L({ name: 'Бекжан', phone: '0700000106', grade: '8', source: 'Реклама', stage: 'Пробный', ago: 2900, trialDate: day(0), trialTime: '17:00', teacher: 'Дмитрий', format: 'Офлайн' }),
-      L({ name: 'Арууке', phone: '0700000107', grade: '6', source: 'Instagram', stage: 'Пробный', ago: 4000, trialDate: day(1), trialTime: '16:00', teacher: 'Артур', format: 'Онлайн' }),
-      L({ name: 'Даниял', phone: '0700000108', grade: '10', source: 'Посоветовали', stage: 'Пробный', ago: 5000, trialDate: day(-1), trialTime: '18:00', teacher: 'Алинур', format: 'Офлайн' }),
-      L({ name: 'Мирлан', phone: '0700000109', grade: '9', source: '2ГИС', stage: 'После пробного', ago: 8000, trialDate: day(-3), trialTime: '17:00', teacher: 'Дмитрий', trialResult: 'Думает', format: 'Офлайн' }),
-      L({ name: 'Эльдана', phone: '0700000110', grade: '4', source: 'Instagram', stage: 'Записался', ago: 12000, upd: 2000, trialDate: day(-5), trialTime: '15:00', teacher: 'Акбар', trialResult: 'Записался' }),
-      L({ name: 'Санжар', phone: '0700000111', grade: '11', source: 'Реклама', stage: 'Отказ', ago: 9000, upd: 4000, lostReason: 'Дорого' }),
-      L({ name: 'Айсулуу', phone: '0700000112', grade: '3', source: 'Посоветовали', stage: 'Записался', ago: 20000, upd: 9000, trialResult: 'Записался' }),
-    ];
-    leads.forEach((l) => { l.log = `${stamp()} ${l.owner}: новый лид (${l.source})`; });
-    const by = (n) => leads.find((l) => l.name === n);
-    const T = (o) => ({ id: id(), created: ago(300), leadId: '', leadName: '', title: '', due: '', owner: 'Алтынай', done: false, doneAt: '', notified: '', key: '', author: 'Алтынай', ...o });
-    const lbl = (l) => `${l.name}, ${l.grade} кл`;
-    const tasks = [
-      T({ leadId: by('Тимур').id, leadName: lbl(by('Тимур')), title: 'Позвонить: папа хотел обсудить время', due: at(0, '09:30') }),
-      T({ leadId: by('Мирлан').id, leadName: lbl(by('Мирлан')), title: 'Перезвонить после пробного', due: at(0, '16:00') }),
-      T({ leadId: by('Элина').id, leadName: lbl(by('Элина')), title: 'Отправить расписание групп 11 класса', due: at(0, '18:00'), owner: 'Билал' }),
-      T({ leadId: by('Эльдана').id, leadName: lbl(by('Эльдана')), title: 'Добавить в «Базу учеников» и в расписание', due: at(-1, '12:00') }),
-      T({ title: 'Обновить прайс в Instagram', due: at(2, '11:00') }),
-    ];
     const trials = [
       { date: day(0), time: '16:00', teacher: 'Артур', name: 'Ислам', grade: '6', phone: '0700000201', format: 'Офлайн', result: '', who: 'Алтынай', comment: '' },
       { date: day(0), time: '17:00', teacher: 'Дмитрий', name: 'Бекжан', grade: '8', phone: '0700000106', format: 'Офлайн', result: '', who: 'Алтынай', comment: '' },
@@ -69,7 +45,17 @@ const Demo = (() => {
       { date: day(1), time: '16:00', teacher: 'Артур', name: 'Арууке', grade: '6', phone: '0700000107', format: 'Онлайн', result: '', who: 'Алтынай', comment: '' },
       { date: day(-1), time: '17:00', teacher: 'Артур', name: 'Нурбек', grade: '7', phone: '0700000208', format: 'Офлайн', result: '', who: 'Билал', comment: 'Мама просит группу после школы' },
       { date: day(-4), time: '18:00', teacher: 'Артур', name: 'Дастан', grade: '5', phone: '0700000209', format: 'Офлайн', result: 'Записался', who: 'Алтынай', comment: 'Преп.: хорошо считает, слабые дроби' },
+      { date: day(2), time: '17:00', teacher: 'Билал', name: 'Сафия', grade: '8', phone: '0700000210', format: 'Офлайн', result: '', who: 'Билал', comment: 'Мама просит группу после 16:00' },
     ].map((t, i) => ({ row: i + 3, ...t }));
+    const tr = (name) => trials.find((t) => t.name === name);
+    const T = (o) => ({ id: id(), created: ago(300), leadId: '', leadName: '', title: '', due: '', owner: 'Алтынай', done: false, doneAt: '', notified: '', key: '', author: 'Алтынай', ...o });
+    const tasks = [
+      T({ leadId: trialRef(tr('Мирлан')), leadName: trialLabel(tr('Мирлан')), title: 'Перезвонить после пробного', due: at(0, '16:00') }),
+      T({ leadId: trialRef(tr('Эльдана')), leadName: trialLabel(tr('Эльдана')), title: 'Добавить в «Базу учеников» и в расписание', due: at(-1, '12:00') }),
+      T({ leadId: trialRef(tr('Даниял')), leadName: trialLabel(tr('Даниял')), title: 'Уточнить, почему не пришли на пробный', due: at(0, '09:30') }),
+      T({ leadId: trialRef(tr('Сафия')), leadName: trialLabel(tr('Сафия')), title: 'Отправить адрес филиала родителям', due: at(0, '18:00'), owner: 'Билал' }),
+      T({ title: 'Обновить прайс в Instagram', due: at(2, '11:00') }),
+    ];
     const payments = [
       { teacher: 'Артур', name: 'Алихан', phone: '0700000301', status: 'Продлить', debt: '0', nextDate: ruD(day(2)) },
       { teacher: 'Дмитрий', name: 'Сезим', phone: '0700000302', status: 'Продлить', debt: '0', nextDate: ruD(day(0)) },
@@ -77,14 +63,14 @@ const Demo = (() => {
       { teacher: 'Билал', name: 'Нурай', phone: '', status: 'Долг', debt: '6 000', nextDate: '' },
       { teacher: 'Алинур', name: 'Тилек', phone: '0700000305', status: 'Долг', debt: '4 000', nextDate: ruD(day(20)) },
     ].map((p) => ({ ...p, key: ['pay', p.teacher, p.name, p.status, p.nextDate].join('|') }));
-    return { leads, tasks, trials, payments };
+    return { v: 2, tasks, trials, payments };
   }
 
   let db = null;
   function get() {
     if (db) return db;
     try { db = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { db = null; }
-    if (!db) { db = seed(); save(); }
+    if (!db || db.v !== 2) { db = seed(); save(); }
     if (!db.archV) { addHistory(db); save(); }
     return db;
   }
@@ -98,10 +84,10 @@ const Demo = (() => {
     const times = ['15:00', '16:00', '17:00', '18:00', '19:00'];
     let row = Math.max(...d.trials.map((t) => t.row)) + 1;
     for (let i = 0; i < 46; i++) {
-      const ago = 6 + Math.round(i * 2.6);
+      const agoD = 6 + Math.round(i * 2.6);
       const teacher = TEACHERS[(i * 5) % TEACHERS.length];
       const k = i < 7 ? i : -1; // первые — ученики Артура из «Базы»
-      d.trials.push({ row: row++, date: day(-ago), time: times[i % times.length], teacher: k >= 0 ? 'Артур' : teacher,
+      d.trials.push({ row: row++, date: day(-agoD), time: times[i % times.length], teacher: k >= 0 ? 'Артур' : teacher,
         name: k >= 0 ? names[i] : names[(i * 3) % names.length], grade: String(5 + (i % 7)),
         phone: k >= 0 ? '07000004' + p2([0, 2, 4, 11, 5, 8, 6][i]) : '0700005' + p2(i) + '0', format: i % 3 ? 'Офлайн' : 'Онлайн',
         result: k >= 0 ? 'Записался' : res[i % res.length], who: i % 4 ? 'Алтынай' : 'Билал', comment: notes[i % notes.length] });
@@ -109,8 +95,6 @@ const Demo = (() => {
     d.archV = 1;
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* ничего */ } }
-  const lbl = (l) => (l.name || 'Без имени') + (l.grade ? `, ${l.grade} кл` : '');
-  const log = (l, text) => { l.log = (l.log ? l.log + '\n' : '') + `${stamp()} Алтынай: ${text}`; l.updated = dtS(new Date()); };
   function addTask(o) {
     const t = { id: id(), created: dtS(new Date()), leadId: '', leadName: '', title: '', due: '', owner: 'Алтынай', done: false, doneAt: '',
       notified: '', key: '', author: 'Алтынай', ...o };
@@ -118,73 +102,94 @@ const Demo = (() => {
     return t;
   }
   function soon() { const d = new Date(); return d.getHours() < 18 ? dtS(new Date(Date.now() + 3600000)) : at(1, '11:00'); }
-  function applyResult(l, r) {
-    l.trialResult = r;
-    log(l, 'итог пробного: ' + r);
-    const owner = l.owner || 'Алтынай';
-    if (r === 'Записался') { l.stage = 'Записался'; addTask({ leadId: l.id, leadName: lbl(l), title: 'Добавить в «Базу учеников» и в расписание', due: dtS(new Date()), owner }); }
-    if (r === 'Думает') { l.stage = 'После пробного'; addTask({ leadId: l.id, leadName: lbl(l), title: 'Перезвонить после пробного', due: at(2, '11:00'), owner }); }
-    if (r === 'Не пришёл') { l.stage = 'После пробного'; addTask({ leadId: l.id, leadName: lbl(l), title: 'Не пришёл на пробный: узнать причину, предложить новую дату', due: soon(), owner }); }
-    if (r === 'Перенос') { l.stage = 'В диалоге'; addTask({ leadId: l.id, leadName: lbl(l), title: 'Назначить новую дату пробного', due: soon(), owner }); }
-    if (r === 'Отказ') { l.stage = 'Отказ'; db.tasks.forEach((t) => { if (t.leadId === l.id && !t.done) { t.done = true; t.doneAt = dtS(new Date()); } }); }
+  function closeTrialTasks(row, allOpen) {
+    const touched = [];
+    db.tasks.forEach((x) => {
+      if (x.done) return;
+      const ref = parseTrialRef(x.leadId);
+      if (!ref || ref.row !== row) return;
+      if (allOpen || AUTO_TRIAL_RE.test(x.title)) {
+        x.done = true; x.doneAt = dtS(new Date());
+        touched.push(x);
+      }
+    });
+    return touched;
   }
-  const find = (lid) => { const l = db.leads.find((x) => x.id === lid); if (!l) throw new Error('Лид не найден'); return l; };
-  const touchTasks = (lid) => db.tasks.filter((t) => t.leadId === lid);
+  function applyResult(t, r) {
+    const touched = closeTrialTasks(t.row, r === 'Отказ');
+    if (!r || r === 'Отказ') return touched;
+    const owner = t.who && USERS.includes(t.who) ? t.who : 'Алтынай';
+    const ref = trialRef(t), lbl = trialLabel(t);
+    if (r === 'Записался') touched.push(addTask({ leadId: ref, leadName: lbl, title: 'Добавить в «Базу учеников» и в расписание', due: dtS(new Date()), owner }));
+    if (r === 'Думает') touched.push(addTask({ leadId: ref, leadName: lbl, title: 'Перезвонить после пробного', due: at(2, '11:00'), owner }));
+    if (r === 'Не пришёл') touched.push(addTask({ leadId: ref, leadName: lbl, title: 'Не пришёл на пробный: узнать причину, предложить новую дату', due: soon(), owner }));
+    if (r === 'Перенос') touched.push(addTask({ leadId: ref, leadName: lbl, title: 'Назначить новую дату пробного', due: soon(), owner }));
+    return touched;
+  }
 
   const A = {
     bootstrap: () => ({
       me: 'Алтынай', main: 'Алтынай', users: USERS, today: day(0), teachers: TEACHERS, settings: SETTINGS,
-      stages: [], results: [], leads: db.leads, tasks: db.tasks, trials: db.trials, payments: db.payments,
+      results: [], tasks: db.tasks, trials: db.trials, payments: db.payments,
       telegram: { bot: 'espada_demo_bot', linked: false, link: 'https://t.me/' },
       teacherBot: TEACHERS.map((n, i) => ({ name: n, linked: i < 2, link: 'https://t.me/espada_demo_bot?start=t' + i,
         cab: location.href.split('#')[0] + '#api=https://script.google.com/demo&k=demo' + i, seen: i < 3 ? day(-i) : '' })),
       links: { base: 'https://docs.google.com/spreadsheets/', sched: 'https://docs.google.com/spreadsheets/' },
     }),
-    saveLead: (r) => {
-      const src = r.lead;
-      let l;
-      if (src.id) { l = find(src.id); Object.assign(l, src); l.updated = dtS(new Date()); } else {
-        l = { id: id(), created: dtS(new Date()), updated: dtS(new Date()), stage: src.stage || 'Новый', trialDate: '', trialTime: '', teacher: '',
-          trialResult: '', lostReason: '', log: '', ...src };
-        delete l.stage; l.stage = src.stage || 'Новый';
-        log(l, 'новый лид' + (l.source ? ` (${l.source})` : ''));
-        db.leads.push(l);
-      }
-      const tasks = [];
-      if (r.firstTask) tasks.push(addTask({ leadId: l.id, leadName: lbl(l), title: r.firstTask.title, due: r.firstTask.due, owner: l.owner }));
-      return { leads: [l], tasks };
-    },
-    moveLead: (r) => {
-      const l = find(r.id);
-      log(l, `${l.stage} → ${r.stage}${r.lostReason ? ' (' + r.lostReason + ')' : ''}`);
-      l.stage = r.stage;
-      if (r.stage === 'Отказ') { l.lostReason = r.lostReason || ''; db.tasks.forEach((t) => { if (t.leadId === l.id && !t.done) { t.done = true; t.doneAt = dtS(new Date()); } }); }
-      if (r.stage === 'Записался') addTask({ leadId: l.id, leadName: lbl(l), title: 'Добавить в «Базу учеников» и в расписание', due: dtS(new Date()), owner: l.owner });
-      return { leads: [l], tasks: touchTasks(l.id) };
-    },
-    addNote: (r) => { const l = find(r.id); log(l, r.text); return { leads: [l] }; },
     bookTrial: (r) => {
-      const l = find(r.id);
-      const out = { trials: [] };
-      const old = db.trials.find((t) => t.date === l.trialDate && t.time === l.trialTime && norm(t.phone) === norm(l.phone) && !t.result);
-      if (old) { old.result = 'Перенос'; out.trials.push(old); }
-      const same = db.trials.find((t) => norm(t.phone) === norm(l.phone) && t.date === r.date && t.time === r.time && t.result !== 'Отказ');
+      if (!r.date || !r.time || !r.teacher) throw new Error('Укажите дату, время и преподавателя');
+      if (!String(r.phone || '').trim() && !String(r.name || '').trim()) throw new Error('Укажите телефон или имя ребёнка');
+      const out = { trials: [], tasks: [] };
+      const resRow = Number(r.rescheduleRow) || 0;
+      if (resRow) {
+        const old = db.trials.find((t) => t.row === resRow);
+        if (old && !old.result && !(old.date === r.date && old.time === r.time)) {
+          old.result = 'Перенос';
+          out.trials.push(old);
+        }
+      }
+      const pNorm = norm(r.phone);
+      const same = pNorm.length >= 9 ? db.trials.find((t) => norm(t.phone) === pNorm && t.date === r.date && t.time === r.time && t.result !== 'Отказ' && t.result !== 'Перенос') : null;
       const tr = same || { row: Math.max(2, ...db.trials.map((t) => t.row)) + 1 };
-      Object.assign(tr, { date: r.date, time: r.time, teacher: r.teacher, name: l.name, grade: l.grade,
-        phone: l.phone, format: r.format, result: '', who: 'Алтынай', comment: r.comment || '' });
+      Object.assign(tr, { date: r.date, time: r.time, teacher: r.teacher, name: String(r.name || '').trim(), grade: String(r.grade || '').trim(),
+        phone: String(r.phone || '').trim(), format: r.format || 'Офлайн', result: '', who: 'Алтынай', comment: String(r.comment || '').trim() });
       if (!same) db.trials.push(tr);
       out.trials.push(tr);
-      Object.assign(l, { trialDate: r.date, trialTime: r.time, teacher: r.teacher, trialResult: '', format: r.format, stage: 'Пробный' });
-      log(l, `записан(а) на пробный ${ruD(r.date)} ${r.time}, ${r.teacher}`);
-      db.tasks.forEach((t) => { if (t.leadId === l.id && !t.done && /пробн/i.test(t.title) && /назнач/i.test(t.title)) { t.done = true; t.doneAt = dtS(new Date()); } });
-      return { ...out, leads: [l], tasks: touchTasks(l.id) };
+      db.tasks.forEach((t) => {
+        if (t.done || !/назнач|новую дату|не приш[её]л/i.test(t.title)) return;
+        const ref = parseTrialRef(t.leadId);
+        if (!ref) return;
+        const orig = db.trials.find((x) => x.row === ref.row);
+        const refPhone = norm(ref.phone || (orig && orig.phone) || '');
+        if ((resRow && ref.row === resRow) || (pNorm.length >= 9 && refPhone === pNorm)) {
+          t.done = true; t.doneAt = dtS(new Date()); out.tasks.push(t);
+        }
+      });
+      return out;
+    },
+    editTrial: (r) => {
+      const t = db.trials.find((x) => x.row === Number(r.row));
+      if (!t) throw new Error('Пробный не найден');
+      if (!r.date || !r.time || !r.teacher) throw new Error('Укажите дату, время и преподавателя');
+      if (!String(r.phone || '').trim() && !String(r.name || '').trim()) throw new Error('Укажите телефон или имя ребёнка');
+      Object.assign(t, { date: r.date, time: r.time, teacher: r.teacher, name: String(r.name || '').trim(), grade: String(r.grade || '').trim(),
+        phone: String(r.phone || '').trim(), format: r.format || t.format || 'Офлайн', comment: String(r.comment || '').trim() });
+      const newRef = trialRef(t), newLbl = trialLabel(t), tasks = [];
+      db.tasks.forEach((x) => {
+        if (x.done) return;
+        const ref = parseTrialRef(x.leadId);
+        if (ref && ref.row === t.row && (x.leadId !== newRef || x.leadName !== newLbl)) {
+          x.leadId = newRef; x.leadName = newLbl; tasks.push(x);
+        }
+      });
+      return { trials: [t], tasks };
     },
     setTrialResult: (r) => {
       const t = db.trials.find((x) => x.row === r.row);
+      if (!t) throw new Error('Пробный не найден');
       t.result = r.result;
-      const l = (r.leadId && db.leads.find((x) => x.id === r.leadId)) || db.leads.find((x) => norm(x.phone) === norm(t.phone) && x.trialDate === t.date);
-      if (l) applyResult(l, r.result);
-      return { trials: [t], leads: l ? [l] : [], tasks: l ? touchTasks(l.id) : [] };
+      const tasks = applyResult(t, r.result);
+      return { trials: [t], tasks };
     },
     slots: (r) => {
       const dow = new Date(r.date + 'T12:00').getDay();
@@ -209,9 +214,10 @@ const Demo = (() => {
     },
     checkPhone: (r) => {
       const p = norm(r.phone);
+      if (p.length < 9) return { students: [], trials: [] };
+      const allStudents = TEACHERS.flatMap((t) => cab(t).students.map((s) => ({ ...s, teacher: t })));
       return {
-        leads: db.leads.filter((l) => norm(l.phone) === p && l.id !== r.exceptId),
-        students: p === '996700000301' ? [{ teacher: 'Артур', name: 'Алихан', grade: '6', status: 'Учится' }] : [],
+        students: allStudents.filter((s) => norm(s.phone) === p),
         trials: db.trials.filter((t) => norm(t.phone) === p),
       };
     },
@@ -223,9 +229,7 @@ const Demo = (() => {
     setTaskDone: (r) => {
       const t = db.tasks.find((x) => x.id === r.id);
       t.done = r.done; t.doneAt = r.done ? dtS(new Date()) : '';
-      const l = t.leadId && db.leads.find((x) => x.id === t.leadId);
-      if (l && r.done) log(l, '✓ ' + t.title);
-      return { tasks: [t], leads: l ? [l] : [] };
+      return { tasks: [t] };
     },
     dismiss: (r) => {
       if (r.undo) {
@@ -242,18 +246,31 @@ const Demo = (() => {
       teachers: TEACHERS, formats: ['Группа', 'Пара', 'Инд'] }),
     enroll: (r) => {
       const st = r.student;
-      if (!r.force && st.name === 'Алихан') return { duplicate: { row: 4, name: 'Алихан', teacher: st.teacher } };
-      db.baseRow = (db.baseRow || 11) + 1;
-      const out = { leads: [], tasks: [], enrolled: { teacher: st.teacher, row: db.baseRow } };
-      const l = r.leadId && db.leads.find((x) => x.id === r.leadId);
-      if (l) {
-        l.inBase = `${st.teacher}, строка ${db.baseRow}`;
-        l.stage = 'Записался';
-        log(l, `добавлен(а) в Базу: ${st.teacher}, ${st.format} ${st.days} ${st.time}`);
-        db.tasks.forEach((t) => { if (t.leadId === l.id && !t.done && /Базу учеников/.test(t.title)) { t.done = true; t.doneAt = dtS(new Date()); } });
-        out.leads.push(l); out.tasks = touchTasks(l.id);
+      const c = cab(st.teacher);
+      const pNorm = norm(st.phone);
+      if (!r.force) {
+        const dup = c.students.find((s) => s.name.toLowerCase() === String(st.name || '').toLowerCase() && s.status !== 'Выбыл' &&
+          (pNorm.length < 11 || norm(s.phone) === pNorm || !s.phone));
+        if (dup) return { duplicate: { row: dup.row, name: dup.name, teacher: st.teacher } };
       }
-      return out;
+      const newRow = Math.max(3, ...c.students.map((s) => s.row)) + 1;
+      const num = (x) => (x === '' || x == null ? 0 : Number(x));
+      const newSt = calc(c, {
+        row: newRow, name: st.name, phone: st.phone || '', grade: st.grade || '', format: st.format || 'Группа',
+        onl: st.onl || 'Офлайн', days: st.days, time: st.time, price: num(st.price), paid: num(st.paid),
+        payDate: num(st.paid) ? (st.payDate || day(0)) : '', freezes: 0, status: 'Учится', comment: st.comment || '', lessons: '',
+      });
+      c.students.push(newSt);
+      const tRow = Number(r.trialRow) || 0;
+      const tasks = [];
+      db.tasks.forEach((t) => {
+        if (t.done) return;
+        const ref = parseTrialRef(t.leadId);
+        const byTask = r.taskId && t.id === r.taskId;
+        const byTrial = /Базу учеников/.test(t.title) && ((tRow && ref && ref.row === tRow) || (pNorm.length >= 9 && ref && ref.phone && norm(ref.phone) === pNorm));
+        if (byTask || byTrial) { t.done = true; t.doneAt = dtS(new Date()); tasks.push(t); }
+      });
+      return { tasks, enrolled: { teacher: st.teacher, row: newRow } };
     },
     studentInfo: (r) => {
       const p = db.payments.find((x) => x.name === r.name && x.teacher === r.teacher);
@@ -283,22 +300,8 @@ const Demo = (() => {
       const t = db.trials.find((x) => x.row === r.row);
       if (!t) throw new Error('Пробный не найден');
       db.trials = db.trials.filter((x) => x !== t);
-      const leads = db.leads.filter((l) => norm(l.phone) === norm(t.phone) && l.trialDate === t.date);
-      leads.forEach((l) => {
-        Object.assign(l, { trialDate: '', trialTime: '', teacher: '', trialResult: '' });
-        if (l.stage === 'Пробный' || l.stage === 'После пробного') l.stage = 'В диалоге';
-        log(l, `пробный удалён (${ruD(t.date)} ${t.time})`);
-      });
-      return { leads, removed: { trials: [t.row] } };
-    },
-    deleteLead: (r) => {
-      const l = find(r.id);
-      const tasks = db.tasks.filter((t) => t.leadId === l.id).map((t) => t.id);
-      db.tasks = db.tasks.filter((t) => t.leadId !== l.id);
-      const trials = r.withTrials ? db.trials.filter((t) => norm(t.phone) === norm(l.phone)).map((t) => t.row) : [];
-      db.trials = db.trials.filter((t) => !trials.includes(t.row));
-      db.leads = db.leads.filter((x) => x !== l);
-      return { removed: { leads: [l.id], tasks, trials } };
+      const tasks = closeTrialTasks(t.row, true);
+      return { tasks, removed: { trials: [t.row] } };
     },
     deleteTask: (r) => {
       db.tasks = db.tasks.filter((t) => t.id !== r.id);
@@ -438,8 +441,7 @@ const Demo = (() => {
       if (t.result && db.own[tKey(t)] !== t.result) throw new Error('Итог уже поставил менеджер: ' + t.result);
       t.result = r.result;
       db.own[tKey(t)] = r.result;
-      const l = db.leads.find((x) => norm(x.phone) === norm(t.phone) && x.trialDate === t.date);
-      if (l) applyResult(l, r.result);
+      applyResult(t, r.result);
       return { trials: [tTrial(t)] };
     },
     tNote: (r) => {
@@ -532,11 +534,8 @@ const Demo = (() => {
         pays.push({ id: 'h2', at: s.payDate + 'T16:40', who: s.row % 3 ? 'Алтынай' : r.as + ' (преп.)', type: 'Новый абонемент', sum: s.paid, undone: false });
       }
       (c.hist || []).filter((h) => h.name === s.name).forEach((h) => pays.push(h));
-      const tr = trials[0];
-      const lead = db.leads.find((l) => p.length >= 11 && norm(l.phone) === p)
-        || (tr ? { source: ['Instagram', 'Посоветовали', '2ГИС', 'Реклама'][s.row % 4], contact: ['мама', 'папа', 'мама Айгуль', ''][s.row % 4], created: addD(tr.date, -4) + 'T11:20', owner: 'Алтынай' } : null);
       return { student: s, payments: pays, freezes: c.freezes.filter((f) => f.n === s.name).map((f) => ({ d: f.d, k: f.k, who: r.as + ' (преп.)' })),
-        trials, lead: lead ? { id: lead.id, source: lead.source, contact: lead.contact, created: lead.created, owner: lead.owner, stage: lead.stage } : null };
+        trials };
     },
     trialArchive: () => {
       const all = TEACHERS.flatMap((t) => cab(t).students.map((s) => ({ ...s, teacher: t })));

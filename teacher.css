@@ -199,3 +199,9 @@
 @media (min-width: 1700px) {
   .st-groups { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* Кнопки итога пробного на телефоне — ровной сеткой 3 + 2 */
+@media (max-width: 759px) {
+  .t-res { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .t-res .btn { width: 100%; justify-content: center; padding: 0 6px; }
+}
