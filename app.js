@@ -274,15 +274,25 @@ const trialByRow = (row) => {
   return (typeof AR !== 'undefined' && AR.list && AR.list.find((x) => x.row === r))
     || (S.d && S.d.trials && S.d.trials.find((x) => x.row === r)) || null;
 };
+/** Пробный, к которому привязана задача. Телефон в ссылке должен совпасть — иначе строки в «Пробных» сдвинули. */
+const refMatches = (ref, tr) => {
+  if (!ref || !tr || ref.row !== tr.row) return false;
+  const a = normPhone(ref.phone);
+  return a.length < 9 || a === normPhone(tr.phone);
+};
+const trialOfRef = (ref) => {
+  const tr = ref ? trialByRow(ref.row) : null;
+  return refMatches(ref, tr) ? tr : null;
+};
 const byDue = (a, b) => ((a.due || '9') < (b.due || '9') ? -1 : 1);
 /** Служебные записи — отменённые отметки «Напомнили» — в списках задач не показываем. */
 const isJunk = (t) => String(t.key || '').startsWith('x|') || /^\(отменено\) /.test(t.title || '');
 const openTasks = () => S.d.tasks.filter((t) => !t.done && !t.key && !isJunk(t));
 const myTask = (t) => t.owner === me() || (!t.owner && isMain());
-const trialTasks = (row) => openTasks().filter((t) => {
-  const r = parseTrialRef(t.leadId);
-  return r && r.row === Number(row);
-}).sort(byDue);
+const trialTasks = (row) => {
+  const tr = trialByRow(row);
+  return tr ? openTasks().filter((t) => refMatches(parseTrialRef(t.leadId), tr)).sort(byDue) : [];
+};
 const trialKey = (t) => `trial|${t.date}|${t.time}|${normPhone(t.phone) || t.name}`;
 
 /** Ключи «напомнили»: ключ → время. */
@@ -677,7 +687,8 @@ function viewToday() {
   const todays = mine.filter((x) => x.due && x.due >= now && x.due.slice(0, 10) === t).sort(byDue);
   const trials = trialsToday();
   const yesterday = trialsYesterday();
-  const noRes = trialsNoResult();
+  // вчерашние без итога уже в блоке «Пробные вчера» — там же и кнопки итога
+  const noRes = trialsNoResult().filter((x) => !yesterday.some((y) => y.row === x.row));
   const pays = paymentsDue();
   const tLeft = trials.filter((x) => !x.reminded);
 
@@ -723,7 +734,7 @@ function viewToday() {
 
 function taskRow(t, o = {}) {
   const ref = parseTrialRef(t.leadId);
-  const tr = ref ? trialByRow(ref.row) : null;
+  const tr = trialOfRef(ref);
   const phone = (tr && tr.phone) || (ref && ref.phone) || '';
   const late = t.due && t.due < nowS();
   const meta = [];
@@ -769,7 +780,14 @@ function trialRow(x) {
 }
 function yesterdayRow(x) {
   const key = 'aft|' + trialKey(x);
-  return `<div class="row has-menu ${x.asked ? 'done' : ''}">
+  const ask = x.asked
+    ? `<span class="pill green">${ic('check', 3)} спросили</span><button class="btn ghost" data-act="undismiss" data-key="${esc(key)}">Отменить</button>`
+    : `${waBtn(x.phone, tpl('после пробного', trialVars(x)), 'Спросить')}${telBtn(x.phone)}
+       <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc('Спросили после пробного: ' + (x.name || prettyPhone(x.phone)))}" >${ic('check', 2.6)}Спросили</button>`;
+  // Итога ещё нет — кнопки итога прямо здесь, чтобы ребёнок не висел ещё и в «Заполните итог»
+  const acts = x.result ? `<div class="actions">${ask}</div>`
+    : `<div class="acts"><div class="actions">${ask}</div><div class="actions">${resultBtns(x)}</div></div>`;
+  return `<div class="row has-menu ${x.result ? '' : 'stack'} ${x.asked && x.result ? 'done' : ''}">
     <button class="row-menu" data-act="trialMenu" data-row="${x.row}" aria-label="Ещё">${ic('more', 2.4)}</button>
     <div class="time-col">${esc(x.time)}</div>
     <div class="main">
@@ -777,12 +795,7 @@ function yesterdayRow(x) {
         ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}
         ${x.result ? `<span class="pill ${RES_CLS[x.result] || ''}">${esc(x.result)}</span>` : ''}</div>
       <div class="meta">${[x.teacher, x.format, prettyPhone(x.phone)].filter(Boolean).map(esc).join(' · ')}</div>
-      <div class="actions">
-        ${x.asked
-          ? `<span class="pill green">${ic('check', 3)} спросили</span><button class="btn ghost" data-act="undismiss" data-key="${esc(key)}">Отменить</button>`
-          : `${waBtn(x.phone, tpl('после пробного', trialVars(x)), 'Спросить')}${telBtn(x.phone)}
-             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc('Спросили после пробного: ' + (x.name || prettyPhone(x.phone)))}" >${ic('check', 2.6)}Спросили</button>`}
-      </div>
+      ${acts}
     </div></div>`;
 }
 function noResRow(x) {
@@ -1396,7 +1409,7 @@ function askDeleteTrial(tr) {
 
 function openTask(taskId, trialRow) {
   const t = taskId ? S.d.tasks.find((x) => x.id === taskId) : null;
-  const tr = trialRow ? trialByRow(Number(trialRow)) : (t && parseTrialRef(t.leadId) ? trialByRow(parseTrialRef(t.leadId).row) : null);
+  const tr = trialRow ? trialByRow(Number(trialRow)) : (t ? trialOfRef(parseTrialRef(t.leadId)) : null);
   const now = new Date();
   const presets = [
     ['Через час', dtStr(new Date(now.getTime() + 3600000))],
@@ -1515,7 +1528,7 @@ const ACT = {
   enroll(el) {
     const t = el.dataset.task ? S.d.tasks.find((x) => x.id === el.dataset.task) : null;
     const ref = t && parseTrialRef(t.leadId);
-    const tr = el.dataset.trial ? trialByRow(Number(el.dataset.trial)) : (ref ? trialByRow(ref.row) : null);
+    const tr = el.dataset.trial ? trialByRow(Number(el.dataset.trial)) : trialOfRef(ref);
     openEnroll({
       trial: tr,
       fallback: !tr && t ? { name: (t.leadName || '').split(',')[0].trim(), phone: (ref && ref.phone) || '' } : null,
