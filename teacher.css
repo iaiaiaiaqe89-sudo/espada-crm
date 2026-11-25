@@ -106,7 +106,7 @@
 /* ---------- Ученик: статус, заморозки ---------- */
 .t-status .chip-btn { flex: 1; justify-content: center; border: 0; background: transparent; height: 36px; border-radius: 9px; }
 .t-status .chip-btn.on { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
-:root[data-skin="brand"] .t-status .chip-btn.on { background: var(--e-dark); color: var(--e-lime); }
+:root[data-skin="brand"] .t-status .chip-btn.on { background: var(--accent); color: var(--accent-ink); }
 .chips .chip-btn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .fz-count { display: flex; align-items: center; gap: 8px; }
 .fz-count .btn { width: 34px; padding: 0; font-size: 18px; }
@@ -188,10 +188,11 @@
 :root[data-skin="brand"] .table tr.on td { color: var(--green); }
 
 @media (min-width: 1000px) {
-  .st-filters { flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .st-filters .seg { flex: none; width: 420px; }
-  .st-teachers { margin: 0; padding: 0; flex: 1; min-width: 0; }
-  .st-teachers + .st-teachers { flex-basis: 100%; }
+  .view-trials .toolbar, .view-students .toolbar { max-width: 860px; }
+  .t-status .chip-btn { height: 30px; }
+  .st-filters { gap: 10px; }
+  .st-filters .seg { max-width: 420px; }
+  .chips.st-teachers { flex-wrap: wrap; overflow: visible; margin: 0; padding: 0; }
 }
 @media (min-width: 1200px) {
   .st-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; align-items: start; }

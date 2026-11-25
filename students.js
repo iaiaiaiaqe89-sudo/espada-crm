@@ -449,7 +449,12 @@ function arListInner() {
     g.list.push(x);
   });
   const total = (ym) => rest.filter((x) => x.date.slice(0, 7) === ym).length;
-  return (upcoming.length ? tSec('Предстоящие', upcoming.length, `<div class="list">${upcoming.map(arRow).join('')}</div>`) : '')
+  const upAll = S.expanded.arUpcoming || upcoming.length <= 6;
+  const upHtml = upcoming.length
+    ? tSec('Предстоящие', upcoming.length, `<div class="list" data-list="arUpcoming">${(upAll ? upcoming : upcoming.slice(0, 5)).map(arRow).join('')}${upAll ? ''
+      : `<button type="button" class="more-btn" data-act="expand" data-k="arUpcoming">Показать все · ${upcoming.length}${ic('chev', 2.4)}</button>`}</div>`)
+    : '';
+  return upHtml
     + groups.map((g) => tSec(esc(monthTitle(g.ym)), total(g.ym), `<div class="list">${g.list.map(arRow).join('')}</div>`)).join('')
     + (rest.length > shown.length ? `<button type="button" class="more-btn ar-more" data-act="arMore">Показать ещё · ${rest.length - shown.length}${ic('chev', 2.4)}</button>` : '');
 }
