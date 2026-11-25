@@ -303,11 +303,11 @@ function trialsToday() {
     .sort((a, b) => (a.time < b.time ? -1 : 1))
     .map((x) => ({ ...x, reminded: !!m[trialKey(x)] }));
 }
-function trialsTomorrow() {
-  const tm = addDays(todayS(), 1), m = dismissed();
-  return S.d.trials.filter((x) => x.date === tm && x.result !== 'Перенос' && x.result !== 'Отказ')
+function trialsYesterday() {
+  const yd = addDays(todayS(), -1), m = dismissed();
+  return S.d.trials.filter((x) => x.date === yd && x.result !== 'Перенос' && x.result !== 'Отказ' && x.result !== 'Записался')
     .sort((a, b) => (a.time < b.time ? -1 : 1))
-    .map((x) => ({ ...x, reminded: !!m['eve|' + trialKey(x)] }));
+    .map((x) => ({ ...x, asked: !!m['aft|' + trialKey(x)] }));
 }
 function trialsNoResult() {
   const t = todayS(), from = addDays(t, -14);
@@ -676,7 +676,7 @@ function viewToday() {
   const overdue = mine.filter((x) => x.due && x.due < now).sort(byDue);
   const todays = mine.filter((x) => x.due && x.due >= now && x.due.slice(0, 10) === t).sort(byDue);
   const trials = trialsToday();
-  const tomorrow = trialsTomorrow();
+  const yesterday = trialsYesterday();
   const noRes = trialsNoResult();
   const pays = paymentsDue();
   const tLeft = trials.filter((x) => !x.reminded);
@@ -707,10 +707,10 @@ function viewToday() {
       : `<div class="list">${emptyState(overdue.length ? 'Остальное на сегодня сделано' : 'На сегодня задач нет')}</div>`);
   right += sec('sec-trials', 'Пробные сегодня', trials.length ? `${trials.length - tLeft.length}/${trials.length} напомнили` : null,
     trials.length ? list('trials', trials, (x) => trialRow(x)) : `<div class="list">${emptyState('Сегодня пробных нет', 'trial')}</div>`);
-  if (tomorrow.length) {
-    const left2 = tomorrow.filter((x) => !x.reminded).length;
-    right += sec('sec-tomorrow', 'Пробные завтра', `${tomorrow.length - left2}/${tomorrow.length} напомнили`,
-      list('tomorrow', tomorrow, (x) => trialRow(x, 'eve|')));
+  if (yesterday.length) {
+    const leftY = yesterday.filter((x) => !x.asked).length;
+    right += sec('sec-yesterday', 'Пробные вчера', `${yesterday.length - leftY}/${yesterday.length} спросили`,
+      list('yesterday', yesterday, (x) => yesterdayRow(x)));
   }
   if (noRes.length) right += sec('sec-nores', 'Заполните итог пробного', noRes.length, list('nores', noRes, noResRow));
   right += `<button type="button" class="link-btn ar-link" data-act="allTrials">${ic('trial', 2)}Все пробные и конверсия</button>`;
@@ -750,9 +750,8 @@ function taskRow(t, o = {}) {
       ${acts}
     </div></div>`;
 }
-function trialRow(x, prefix = '') {
-  if (typeof prefix !== 'string') prefix = ''; // защита от map(trialRow): там второй аргумент — номер строки
-  const key = prefix + trialKey(x);
+function trialRow(x) {
+  const key = trialKey(x);
   return `<div class="row has-menu ${x.reminded ? 'done' : ''}">
     <button class="row-menu" data-act="trialMenu" data-row="${x.row}" aria-label="Ещё">${ic('more', 2.4)}</button>
     <div class="time-col">${esc(x.time)}</div>
@@ -764,7 +763,25 @@ function trialRow(x, prefix = '') {
         ${x.reminded
           ? `<span class="pill green">${ic('check', 3)} напомнили</span><button class="btn ghost" data-act="undismiss" data-key="${esc(key)}">Отменить</button>`
           : `${waBtn(x.phone, tpl('напоминание о пробном', trialVars(x)), 'Напомнить')}${telBtn(x.phone)}
-             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc((prefix ? 'Напомнили накануне о пробном: ' : 'Напомнили о пробном: ') + (x.name || prettyPhone(x.phone)))}" >${ic('check', 2.6)}Напомнили</button>`}
+             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc('Напомнили о пробном: ' + (x.name || prettyPhone(x.phone)))}" >${ic('check', 2.6)}Напомнили</button>`}
+      </div>
+    </div></div>`;
+}
+function yesterdayRow(x) {
+  const key = 'aft|' + trialKey(x);
+  return `<div class="row has-menu ${x.asked ? 'done' : ''}">
+    <button class="row-menu" data-act="trialMenu" data-row="${x.row}" aria-label="Ещё">${ic('more', 2.4)}</button>
+    <div class="time-col">${esc(x.time)}</div>
+    <div class="main">
+      <div class="title"><span class="t-inline">${esc(x.time)}</span><a data-act="arOpen" data-row="${x.row}">${x.name ? esc(x.name) : NONAME}</a>
+        ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}
+        ${x.result ? `<span class="pill ${RES_CLS[x.result] || ''}">${esc(x.result)}</span>` : ''}</div>
+      <div class="meta">${[x.teacher, x.format, prettyPhone(x.phone)].filter(Boolean).map(esc).join(' · ')}</div>
+      <div class="actions">
+        ${x.asked
+          ? `<span class="pill green">${ic('check', 3)} спросили</span><button class="btn ghost" data-act="undismiss" data-key="${esc(key)}">Отменить</button>`
+          : `${waBtn(x.phone, tpl('после пробного', trialVars(x)), 'Спросить')}${telBtn(x.phone)}
+             <button class="btn ok" data-act="dismiss" data-key="${esc(key)}" data-title="${esc('Спросили после пробного: ' + (x.name || prettyPhone(x.phone)))}" >${ic('check', 2.6)}Спросили</button>`}
       </div>
     </div></div>`;
 }
