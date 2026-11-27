@@ -463,9 +463,9 @@ function render(opts = {}) {
   $('#tbTitle').textContent = tabTitle(view);
   $('#tbSub').textContent = view === 'today' || view === 'tday' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : me();
   $('.me-name').textContent = me();
-  const canSwitch = !CFG.demo && !S.as && profiles().length > 1;
+  const canSwitch = !CFG.demo && !S.as && (profiles().length > 1 || !teacher);
   $('.side-foot').classList.toggle('can-switch', canSwitch);
-  $('.side-foot').title = canSwitch ? 'Сменить профиль' : '';
+  $('.side-foot').title = canSwitch ? (profiles().length > 1 ? 'Сменить профиль' : 'Профили') : '';
   $('.me-main').classList.toggle('hidden', teacher || !isMain());
   const fab = $('.fab');
   if (fab) {
@@ -1703,12 +1703,18 @@ const ACT = {
     const p = profiles().find((x) => x.key === el.dataset.key);
     if (!p) return;
     lsSet('espada-auth', JSON.stringify({ api: p.api, key: p.key }));
+    lsSet('espada-demo', null);
     location.hash = '';
     location.reload();
   },
   profPick() {
     const l = profiles();
-    if (CFG.demo || l.length < 2 || (S.d && S.d.preview)) return;
+    if (CFG.demo || S.as || !S.d) return;
+    if (l.length < 2) {
+      // профиль пока один — у менеджера ведём в «Ещё → Профили», где его можно добавить
+      if (!isTeacher()) { ACT.tab({ dataset: { v: 'more' } }); setTimeout(() => { const m = $('.prof-menu'); if (m) m.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 350); }
+      return;
+    }
     pick('Профиль', l.map((p) => ({ label: profName(p), note: profRole(p), cur: p.key === CFG.key,
       onPick: () => { if (p.key !== CFG.key) ACT.profSwitch({ dataset: { key: p.key } }); } })));
   },

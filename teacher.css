@@ -226,6 +226,9 @@
 .ar-table th, .ar-table td { white-space: nowrap; }
 .ar-table tfoot td { font-weight: 700; border-top: 1px solid var(--line); }
 .view-trials .toolbar .toggle { flex: none; white-space: nowrap; }
+.view-trials .toolbar .search { min-width: 0; }
+/* на телефоне новый пробный — круглой «+» внизу, а в строке поиска места только на «Отчёт» */
+@media (max-width: 759px) { .view-trials .toolbar [data-act="newTrial"] { display: none; } }
 .ar-rep { max-width: 860px; }
 .ar-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .ar-actions .btn svg { width: 16px; height: 16px; }
