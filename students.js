@@ -15,7 +15,8 @@ const SM = { list: null, meta: null, at: 0, loading: false, err: '', q: '', teac
 /** Подробности карточек: «преподаватель|имя» → { data, err, loading, stale }. */
 const SC = {};
 /** Архив пробных (у менеджера). */
-const AR = { list: null, at: 0, loading: false, err: '', q: '', teacher: '', result: '', period: 'month', shown: 60 };
+const AR = { list: null, at: 0, loading: false, err: '', q: '', teacher: '', result: '', period: 'month', shown: 60,
+  mode: '' /* 'list' | 'report' — читается из localStorage при первом показе */ };
 
 const ST_FILTERS = [['live', 'Учатся'], ['due', 'Оплата'], ['frozen', 'Заморозка'], ['gone', 'Выбыли']];
 const AR_PERIODS = [['month', 'Этот месяц'], ['prev', 'Прошлый'], ['90', '3 мес.'], ['all', 'Всё']];
@@ -424,6 +425,7 @@ function arRow(x) {
 function arListInner() {
   if (!AR.list) return `<div class="list">${AR.err ? emptyState(AR.err, 'alert') : loadingState('Загружаю все пробные…')}</div>`;
   const t = todayS(), q = AR.q.trim();
+  if (AR.mode === 'report' && !q) return arReport();
   const items = arFiltered();
   if (AR.result === '+') {
     if (!items.length) return `<div class="list">${emptyState(q ? `Ничего не нашлось по «${q}»` : 'Предстоящих пробных нет', 'trial')}</div>`;
@@ -458,6 +460,179 @@ function arListInner() {
     + groups.map((g) => tSec(esc(monthTitle(g.ym)), total(g.ym), `<div class="list">${g.list.map(arRow).join('')}</div>`)).join('')
     + (rest.length > shown.length ? `<button type="button" class="more-btn ar-more" data-act="arMore">Показать ещё · ${rest.length - shown.length}${ic('chev', 2.4)}</button>` : '');
 }
+/* ---------- Отчёт по пробным: итоги, воронка, разрезы, выгрузка ---------- */
+
+const AR_DONE = ['Записался', 'Думает', 'Отказ']; // ребёнок пришёл на пробный
+const pctOf = (a, b) => (b ? Math.round((a / b) * 100) : null);
+const pctS = (v) => (v == null ? '—' : v + '%');
+
+/** Подробные итоги по списку пробных (строки листа «Пробные»). */
+function arStats(list) {
+  const t = todayS();
+  const by = {};
+  let ahead = 0, open = 0, inBase = 0, studying = 0;
+  list.forEach((x) => {
+    if (x.result) by[x.result] = (by[x.result] || 0) + 1;
+    else if (x.date >= t) ahead++;
+    else open++;
+    if (x.result === 'Записался' && x.base) { inBase++; if (x.base.status !== 'Выбыл') studying++; }
+  });
+  const g = (r) => by[r] || 0;
+  const moved = g('Перенос');
+  const booked = list.length - moved; // назначено без переносов: перенесённый пробный — это новая строка
+  const came = AR_DONE.reduce((s, r) => s + g(r), 0);
+  const noShow = g('Не пришёл');
+  const won = g('Записался');
+  const judged = Object.keys(by).filter((r) => r !== 'Перенос').reduce((s, r) => s + by[r], 0);
+  return { all: list.length, booked, moved, ahead, open, by, came, noShow, won, judged, inBase, studying,
+    think: g('Думает'), refuse: g('Отказ'),
+    pct: pctOf(won, judged), pctCame: pctOf(won, came), show: pctOf(came, came + noShow) };
+}
+
+function arPeriodTitle() {
+  const t = todayS(), m0 = t.slice(0, 8) + '01';
+  if (AR.period === 'month') return monthTitle(t.slice(0, 7));
+  if (AR.period === 'prev') return monthTitle(addDays(m0, -1).slice(0, 7));
+  if (AR.period === '90') return `${ddmm(addDays(t, -90))} — сегодня`;
+  return 'Всё время';
+}
+/** Пробные отчёта: период + выбранный преподаватель. */
+function arReportList() {
+  const list = arInPeriod();
+  return AR.teacher ? list.filter((x) => x.teacher === AR.teacher) : list;
+}
+
+function arBar(label, n, total, cls, act, sub) {
+  const w = total ? Math.max(n ? 2 : 0, Math.round((n / total) * 100)) : 0;
+  const attrs = act ? `class="ar-bar tap" data-act="arResult" data-v="${esc(act)}"` : 'class="ar-bar"';
+  return `<div ${attrs}>
+      <div class="ar-bl"><span>${esc(label)}</span><b>${n}</b><small>${pctS(pctOf(n, total))}</small></div>
+      <div class="ar-track"><i class="${cls || ''}" style="width:${w}%"></i></div>
+      ${sub ? `<div class="ar-sub">${sub}</div>` : ''}
+    </div>`;
+}
+
+/** Таблица-разрез: name → строки пробных. full — все итоги по столбцам, иначе коротко. */
+function arDimTable(title, groups, o = {}) {
+  if (!groups.length) return '';
+  const head = o.full
+    ? [o.label, 'Назначено', 'Записались', 'Конв.', 'Пришли', 'Думают', 'Отказ', 'Не пришли']
+    : [o.label, 'Назначено', 'Записались', 'Конв.'];
+  const rows = groups.map(([name, list]) => {
+    const s = arStats(list);
+    const on = o.act && o.on === name ? 'on' : '';
+    const attrs = o.act ? `class="tap ${on}" data-act="${o.act}" data-v="${esc(name)}"` : '';
+    const cells = o.full ? [s.booked, s.won, pctS(s.pct), s.came, s.think, s.refuse, s.noShow] : [s.booked, s.won, pctS(s.pct)];
+    return `<tr ${attrs}><td>${esc(o.name ? o.name(name) : name)}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+  }).join('');
+  let foot = '';
+  if (o.total) {
+    const s = arStats(groups.flatMap(([, l]) => l));
+    const cells = o.full ? [s.booked, s.won, pctS(s.pct), s.came, s.think, s.refuse, s.noShow] : [s.booked, s.won, pctS(s.pct)];
+    foot = `<tfoot><tr><td>Итого</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr></tfoot>`;
+  }
+  return tSec(title, null, `<div class="list ar-scroll"><table class="table ar-table"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows}</tbody>${foot}</table></div>`);
+}
+const arGroup = (list, key) => {
+  const m = new Map();
+  list.forEach((x) => { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); });
+  return [...m.entries()];
+};
+
+function arReport() {
+  const list = arReportList();
+  const s = arStats(list);
+  if (!list.length) return `<div class="list">${emptyState('За этот период пробных нет', 'trial')}</div>`;
+  const resCls = { 'Записался': 'green', 'Думает': 'amber', 'Отказ': 'red', 'Не пришёл': 'red', 'Перенос': 'muted' };
+  const known = ['Записался', 'Думает', 'Отказ', 'Не пришёл', 'Перенос'];
+  const extra = Object.keys(s.by).filter((r) => !known.includes(r));
+  const results = tSec('Итоги', s.all, `<div class="list">
+      ${known.map((r) => arBar(r === 'Не пришёл' ? 'Не пришли' : r === 'Записался' ? 'Записались' : r === 'Думает' ? 'Думают' : r, s.by[r] || 0, s.all, resCls[r], r)).join('')}
+      ${extra.map((r) => arBar(r, s.by[r], s.all, 'muted', r)).join('')}
+      ${arBar('Без итога', s.open, s.all, 'red', '—', s.open ? 'прошли, а итог не заполнен' : '')}
+      ${arBar('Впереди', s.ahead, s.all, 'muted', '+')}
+    </div>`);
+  const lost = s.won - s.inBase;
+  const funnel = tSec('Воронка', null, `<div class="list">
+      ${arBar('Назначено', s.booked, s.booked, '', '', s.moved ? `без ${s.moved} ${plural(s.moved, ['переноса', 'переносов', 'переносов'])}` : '')}
+      ${arBar('Пришли', s.came, s.booked, 'green', '', `явка ${pctS(s.show)} — из тех, по кому известно, пришли или нет`)}
+      ${arBar('Записались', s.won, s.booked, 'green', 'Записался', `${pctS(s.pctCame)} из пришедших · ${pctS(s.pct)} из всех с итогом`)}
+      ${arBar('Есть в «Базе»', s.inBase, s.booked, 'green', '', lost > 0 ? `${lost} ${plural(lost, ['записавшийся', 'записавшихся', 'записавшихся'])} пока нет в «Базе»` : '')}
+      ${arBar('Учатся сейчас', s.studying, s.booked, 'green', '', s.inBase - s.studying > 0 ? `${s.inBase - s.studying} уже выбыли` : '')}
+    </div>`);
+
+  // разрезы
+  const teachers = arGroup(arInPeriod(), (x) => x.teacher || '—').sort((a, b) => b[1].length - a[1].length);
+  const months = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
+    const ym = `${d.getFullYear()}-${p2(d.getMonth() + 1)}`;
+    const l = (AR.list || []).filter((x) => x.date.slice(0, 7) === ym && (!AR.teacher || x.teacher === AR.teacher));
+    if (l.length || i === 0) months.push([ym, l]);
+  }
+  const gradeN = (g) => { const n = parseInt(g, 10); return Number.isFinite(n) ? n : 99; };
+  const grades = arGroup(list, (x) => String(x.grade || '').trim() || '—').sort((a, b) => gradeN(a[0]) - gradeN(b[0]) || (a[0] < b[0] ? -1 : 1));
+  const formats = arGroup(list, (x) => x.format || '—').sort((a, b) => b[1].length - a[1].length);
+  const whos = arGroup(list, (x) => x.who || '—').sort((a, b) => b[1].length - a[1].length);
+  const wdOrder = [1, 2, 3, 4, 5, 6, 0];
+  const days = arGroup(list, (x) => parseD(x.date).getDay()).sort((a, b) => wdOrder.indexOf(a[0]) - wdOrder.indexOf(b[0]));
+  const WDL = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+
+  const actions = `<div class="ar-actions">
+      <button type="button" class="btn" data-act="arCopy">${ic('check', 2.2)}Скопировать отчёт</button>
+      <button type="button" class="btn" data-act="arCsv">${ic('table', 2)}Скачать таблицу</button>
+    </div>`;
+  return `<div class="ar-rep">
+      <div>${funnel}${results}${actions}</div>
+      <div>
+        ${arDimTable('По преподавателям', teachers, { label: 'Преподаватель', full: true, total: true, act: 'arTeacher', on: AR.teacher })}
+        ${arDimTable('По месяцам', months, { label: 'Месяц', full: true, name: monthTitle })}
+        ${arDimTable('По классам', grades, { label: 'Класс', name: (g) => (/^\d+$/.test(g) ? g + ' класс' : g) })}
+        ${arDimTable('По формату', formats, { label: 'Формат' })}
+        ${arDimTable('По дням недели', days, { label: 'День', name: (d) => WDL[d] })}
+        ${arDimTable('Кто записал', whos, { label: 'Менеджер' })}
+      </div>
+    </div>
+    <p class="hint">Отчёт за период «${esc(arPeriodTitle())}»${AR.teacher ? `, преподаватель ${esc(AR.teacher)}` : ''}. «Назначено» — без переносов: перенесённый пробный записывается новой строкой.
+      «Пришли» — итог «Записался», «Думает» или «Отказ». «Конв.» — записавшиеся из всех пробных с итогом (без переносов). По месяцам — последние 12 месяцев. Нажмите на итог — откроется список этих пробных.</p>`;
+}
+
+/** Текст отчёта — чтобы вставить в WhatsApp или Telegram. */
+function arReportText() {
+  const list = arReportList();
+  const s = arStats(list);
+  const L = [];
+  L.push(`Пробные — ${arPeriodTitle()}${AR.teacher ? ` (${AR.teacher})` : ''}`);
+  L.push('');
+  L.push(`Назначено: ${s.booked}${s.moved ? ` (+ переносов: ${s.moved})` : ''}`);
+  L.push(`Пришли: ${s.came} · явка ${pctS(s.show)}`);
+  L.push(`Записались: ${s.won} — ${pctS(s.pctCame)} из пришедших, ${pctS(s.pct)} из всех с итогом`);
+  L.push(`Думают: ${s.think} · Отказ: ${s.refuse} · Не пришли: ${s.noShow}`);
+  if (s.open) L.push(`Без итога: ${s.open}`);
+  if (s.ahead) L.push(`Впереди: ${s.ahead}`);
+  L.push(`В «Базе»: ${s.inBase}, учатся сейчас: ${s.studying}`);
+  if (!AR.teacher) {
+    const byT = arGroup(list, (x) => x.teacher || '—').sort((a, b) => b[1].length - a[1].length);
+    if (byT.length) {
+      L.push('', 'По преподавателям:');
+      byT.forEach(([tc, l]) => { const v = arStats(l); L.push(`• ${tc}: ${v.booked} ${plural(v.booked, ['пробный', 'пробных', 'пробных'])}, записались ${v.won} (${pctS(v.pct)}), не пришли ${v.noShow}`); });
+    }
+  }
+  return L.join('\n');
+}
+
+/** CSV для Excel / Google Таблиц: точка с запятой и BOM — чтобы кириллица и столбцы открылись сразу. */
+function arCsvText() {
+  const list = [...arReportList()].sort((a, b) => (a.date + a.time < b.date + b.time ? -1 : 1));
+  const t = todayS();
+  const q = (v) => { const s = String(v == null ? '' : v); return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const head = ['Дата', 'День', 'Время', 'Преподаватель', 'Ребёнок', 'Класс', 'Телефон', 'Формат', 'Итог', 'Записал(а)', 'В Базе', 'Статус в Базе', 'Комментарий'];
+  const rows = list.map((x) => [ddmm(x.date), WD[parseD(x.date).getDay()], x.time, x.teacher, x.name, x.grade, prettyPhone(x.phone) || x.phone, x.format,
+    x.result || (x.date >= t ? 'впереди' : 'нет итога'), x.who, x.base ? 'да' : '', x.base ? x.base.status || '' : '', x.comment]);
+  return '﻿' + [head, ...rows].map((r) => r.map(q).join(';')).join('\r\n');
+}
+
 function redrawArchive() {
   const w = $('#arWrap');
   if (!w) return render();
@@ -466,6 +641,8 @@ function redrawArchive() {
 
 function viewTrials() {
   arLoad();
+  if (!AR.mode) AR.mode = lsGet('espada-ar-mode') === 'report' ? 'report' : 'list';
+  const rep = AR.mode === 'report';
   const t = todayS();
   const list = arInPeriod();
   const c = arCount(AR.teacher ? list.filter((x) => x.teacher === AR.teacher) : list);
@@ -494,6 +671,7 @@ function viewTrials() {
     </div>
     <div class="toolbar">
       <label class="search">${ic('search')}<input id="aq" type="search" placeholder="Имя или телефон — по всем пробным" value="${esc(AR.q)}" autocomplete="off"></label>
+      <button class="toggle ${rep ? 'on' : ''}" data-act="arMode" aria-pressed="${rep}">Отчёт</button>
       <button class="toggle" data-act="newTrial">+ Пробный</button>
     </div>
     <div class="st-filters">
@@ -502,17 +680,17 @@ function viewTrials() {
         <button type="button" class="chip-btn ${!AR.teacher ? 'on' : ''}" data-act="arTeacher" data-v="">Все</button>
         ${teachers.map((tc) => `<button type="button" class="chip-btn ${AR.teacher === tc ? 'on' : ''}" data-act="arTeacher" data-v="${esc(tc)}">${esc(tc)}</button>`).join('')}
       </div>
-      <div class="chips nowrap st-teachers">
+      ${rep ? '' : `<div class="chips nowrap st-teachers">
         <button type="button" class="chip-btn ${!AR.result ? 'on' : ''}" data-act="arResult" data-v="">Все итоги</button>
         <button type="button" class="chip-btn ${AR.result === '+' ? 'on' : ''}" data-act="arResult" data-v="+">Впереди</button>
         ${[...AR_RESULTS, '—'].map((r) => `<button type="button" class="chip-btn ${AR.result === r ? 'on' : ''}" data-act="arResult" data-v="${esc(r)}">${r === '—' ? 'Без итога' : esc(r)}</button>`).join('')}
-      </div>
+      </div>`}
     </div>
-    <div class="t-cols t-flip">
+    ${rep ? `<div id="arWrap" class="ar-wrap-rep">${arListInner()}</div>` : `<div class="t-cols t-flip">
       <div>${tTable}<div class="desk-only">${mTable}</div></div>
       <div id="arWrap">${arListInner()}</div>
-    </div>
-    <p class="hint">Здесь все пробные из листа «Пробные». «В Базе» — ребёнок уже есть в «Базе учеников». Процент записавшихся считается по прошедшим пробным с итогом, без переносов.</p>`;
+    </div>`}
+    ${rep ? '' : '<p class="hint">Здесь все пробные из листа «Пробные». «В Базе» — ребёнок уже есть в «Базе учеников». Процент записавшихся считается по прошедшим пробным с итогом, без переносов. «Отчёт» — подробные итоги, воронка и разрезы для отчётности.</p>'}`;
 }
 
 function arSheet(row) {
@@ -605,7 +783,37 @@ const ST_ACT = {
   arOpen(el) { const row = Number(el.dataset.row); openSheet(() => arSheet(row), { live: true }); },
   arPeriod(el) { if (AR.period === el.dataset.v) return; AR.period = el.dataset.v; AR.shown = 60; render({ anim: 'soft' }); },
   arTeacher(el) { const v = AR.teacher === el.dataset.v ? '' : el.dataset.v; AR.teacher = v; AR.shown = 60; render({ anim: 'soft' }); },
-  arResult(el) { const v = AR.result === el.dataset.v ? '' : el.dataset.v; AR.result = v; AR.shown = 60; render({ anim: 'soft' }); },
+  arResult(el) {
+    // из отчёта — сразу в список этих пробных
+    const fromReport = AR.mode === 'report';
+    const v = !fromReport && AR.result === el.dataset.v ? '' : el.dataset.v;
+    if (fromReport) { AR.mode = 'list'; lsSet('espada-ar-mode', 'list'); }
+    AR.result = v; AR.shown = 60; render({ anim: 'soft' });
+  },
+  arMode() {
+    AR.mode = AR.mode === 'report' ? 'list' : 'report';
+    lsSet('espada-ar-mode', AR.mode);
+    render({ anim: 'soft' });
+  },
+  async arCopy() {
+    const text = arReportText();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Отчёт скопирован — вставьте его в WhatsApp или Telegram');
+    } catch {
+      if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+      window.prompt('Скопируйте отчёт:', text);
+    }
+  },
+  arCsv() {
+    const name = `Пробные ${arPeriodTitle()}${AR.teacher ? ' ' + AR.teacher : ''}.csv`.replace(/[\\/:*?"<>|]/g, '-');
+    const url = URL.createObjectURL(new Blob([arCsvText()], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('Таблица сохранена — откроется в Excel или Google Таблицах');
+  },
   arMore() { AR.shown += 100; redrawArchive(); },
   arRes(el) {
     const row = Number(el.dataset.row), v = el.dataset.v;

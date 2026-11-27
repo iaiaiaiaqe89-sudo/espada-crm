@@ -206,3 +206,29 @@
   .t-res { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .t-res .btn { width: 100%; justify-content: center; padding: 0 6px; }
 }
+
+/* Отчёт по пробным: полосы итогов и воронки, разрезы */
+.ar-bar { padding: 10px 14px 11px; border-top: 1px solid var(--line); }
+.ar-bar:first-child { border-top: 0; }
+.ar-bar.tap { cursor: pointer; }
+.ar-bl { display: flex; align-items: baseline; gap: 10px; font-size: 15px; }
+.ar-bl span { flex: 1; min-width: 0; }
+.ar-bl b { font-variant-numeric: tabular-nums; }
+.ar-bl small { min-width: 40px; text-align: right; color: var(--muted); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ar-track { height: 6px; margin-top: 7px; border-radius: 3px; background: var(--card-2); overflow: hidden; }
+.ar-track i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.ar-track i.green { background: var(--green); }
+.ar-track i.amber { background: var(--amber); }
+.ar-track i.red { background: var(--red); }
+.ar-track i.muted { background: var(--muted); opacity: .45; }
+.ar-sub { margin-top: 5px; font-size: 12.5px; color: var(--muted); }
+.ar-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ar-table th, .ar-table td { white-space: nowrap; }
+.ar-table tfoot td { font-weight: 700; border-top: 1px solid var(--line); }
+.view-trials .toolbar .toggle { flex: none; white-space: nowrap; }
+.ar-rep { max-width: 860px; }
+.ar-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.ar-actions .btn svg { width: 16px; height: 16px; }
+@media (min-width: 1300px) {
+  .ar-rep { max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 0 28px; align-items: start; }
+}
