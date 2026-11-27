@@ -244,3 +244,6 @@
 /* Прошедший пробный в кабинете: вся карточка открывает итог и отзыв */
 .t-trial.tap { cursor: pointer; transition: opacity .15s ease; }
 .t-trial.tap:active { opacity: .7; }
+.t-phone { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; cursor: pointer; white-space: nowrap; }
+:root[data-skin="brand"] .t-phone { color: var(--green); }
+.t-phone svg { width: 13px; height: 13px; }

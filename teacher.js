@@ -162,7 +162,8 @@ function tTrialCard(x, o = {}) {
       <div class="main">
         <div class="title">${x.result ? `<span class="pill ${x.result === 'Записался' ? 'green' : x.result === 'Отказ' || x.result === 'Не пришёл' ? 'red' : 'amber'}">${esc(x.result)}</span>`
           : `<span class="pill ${need ? 'red' : 'amber'}">${need ? 'Пробный: итог?' : 'Пробный'}</span>`} ${x.name ? esc(x.name) : NONAME} ${x.grade ? `<span class="pill">${esc(gr(x.grade))}</span>` : ''}</div>
-        <div class="meta">${[when, (x.format || '').toLowerCase()].filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="meta">${[when, (x.format || '').toLowerCase()].filter(Boolean).map(esc).join(' · ')}${telUrl(x.phone)
+          ? `${when || x.format ? ' · ' : ''}<a class="t-phone" data-act="tPhone" data-row="${x.row}">${ic('phone', 2)}${esc(prettyPhone(x.phone))}</a>` : ''}</div>
         ${x.comment ? `<div class="t-note">${esc(x.comment)}</div>` : ''}
         ${acts}
       </div>
@@ -728,6 +729,14 @@ const T_ACT = {
     const x = S.d.trials.find((t) => t.row === Number(el.dataset.row));
     if (!x) return;
     pick('Изменить итог', RESULTS.map((r) => ({ label: r, cur: r === x.result, onPick: () => { if (r !== x.result) tSetResult(x, r); } })));
+  },
+  tPhone(el) {
+    const x = S.d.trials.find((t) => t.row === Number(el.dataset.row));
+    if (!x || !telUrl(x.phone)) return toast('Нет телефона', { err: true });
+    pick(esc(`${x.name || 'Без имени'} · ${prettyPhone(x.phone)}`), [
+      { label: 'Позвонить', onPick: () => { location.href = telUrl(x.phone); } },
+      { label: 'Написать в WhatsApp', onPick: () => window.open(waUrl(x.phone), '_blank') },
+    ]);
   },
   tTrialPick(el) {
     const x = S.d.trials.find((t) => t.row === Number(el.dataset.row));

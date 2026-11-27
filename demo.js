@@ -408,7 +408,7 @@ const Demo = (() => {
       journal: [{ date: day(-((new Date().getDay() || 7))), week: addD(ws(), -7), sum: 5400, comment: '' }, { date: addD(ws(), -8), week: addD(ws(), -14), sum: 6200, comment: 'с заменой' }] };
   }
   const tKey = (t) => [t.date, t.time, norm(t.phone) || t.name, t.teacher].join('|');
-  const tTrial = (t) => ({ row: t.row, key: tKey(t), date: t.date, time: t.time, name: t.name, grade: t.grade, format: t.format,
+  const tTrial = (t) => ({ row: t.row, key: tKey(t), date: t.date, time: t.time, name: t.name, grade: t.grade, format: t.format, phone: t.phone,
     result: t.result, comment: t.comment, mine: !!t.result && (db.own || {})[tKey(t)] === t.result });
   const trialOf = (r) => {
     const t = db.trials.find((x) => tKey(x) === r.key) || db.trials.find((x) => x.row === r.row);
