@@ -518,7 +518,10 @@ function arDimTable(title, groups, o = {}) {
   const head = o.full
     ? [o.label, 'Назначено', 'Записались', 'Конв.', 'Пришли', 'Думают', 'Отказ', 'Не пришли']
     : [o.label, 'Назначено', 'Записались', 'Конв.'];
-  const rows = groups.map(([name, list]) => {
+  // группы, где были только переносы, не показываем — назначено 0, считать нечего
+  const shown = o.keepEmpty ? groups : groups.filter(([, list]) => arStats(list).booked);
+  if (!shown.length) return '';
+  const rows = shown.map(([name, list]) => {
     const s = arStats(list);
     const on = o.act && o.on === name ? 'on' : '';
     const attrs = o.act ? `class="tap ${on}" data-act="${o.act}" data-v="${esc(name)}"` : '';
@@ -534,6 +537,14 @@ function arDimTable(title, groups, o = {}) {
   return tSec(title, null, `<div class="list ar-scroll"><table class="table ar-table"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
     <tbody>${rows}</tbody>${foot}</table></div>`);
 }
+/** Класс пишут по-разному: «7 класс», «7 кл», «7кл», «7/8», «5кл олимпиадница» — берём номер в начале. 0 — не указан, 99 — без номера. */
+const arGradeKey = (x) => {
+  const g = String(x.grade || '').trim();
+  if (!g) return 0;
+  const m = g.match(/^(\d{1,2})(?!\d)/);
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= 11 ? n : 99;
+};
 const arGroup = (list, key) => {
   const m = new Map();
   list.forEach((x) => { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); });
@@ -571,9 +582,9 @@ function arReport() {
     const l = (AR.list || []).filter((x) => x.date.slice(0, 7) === ym && (!AR.teacher || x.teacher === AR.teacher));
     if (l.length || i === 0) months.push([ym, l]);
   }
-  const gradeN = (g) => { const n = parseInt(g, 10); return Number.isFinite(n) ? n : 99; };
-  const grades = arGroup(list, (x) => String(x.grade || '').trim() || '—').sort((a, b) => gradeN(a[0]) - gradeN(b[0]) || (a[0] < b[0] ? -1 : 1));
-  const formats = arGroup(list, (x) => x.format || '—').sort((a, b) => b[1].length - a[1].length);
+  const grades = arGroup(list, arGradeKey).sort((a, b) => (a[0] || 100) - (b[0] || 100)); // «Не указан» — в конце
+  const formats = arGroup(list, (x) => { const f = String(x.format || '').trim().toLowerCase(); return f ? f[0].toUpperCase() + f.slice(1) : 'Не указан'; })
+    .sort((a, b) => b[1].length - a[1].length);
   const whos = arGroup(list, (x) => x.who || '—').sort((a, b) => b[1].length - a[1].length);
   const wdOrder = [1, 2, 3, 4, 5, 6, 0];
   const days = arGroup(list, (x) => parseD(x.date).getDay()).sort((a, b) => wdOrder.indexOf(a[0]) - wdOrder.indexOf(b[0]));
@@ -587,8 +598,8 @@ function arReport() {
       <div>${funnel}${results}${actions}</div>
       <div>
         ${arDimTable('По преподавателям', teachers, { label: 'Преподаватель', full: true, total: true, act: 'arTeacher', on: AR.teacher })}
-        ${arDimTable('По месяцам', months, { label: 'Месяц', full: true, name: monthTitle })}
-        ${arDimTable('По классам', grades, { label: 'Класс', name: (g) => (/^\d+$/.test(g) ? g + ' класс' : g) })}
+        ${arDimTable('По месяцам', months, { label: 'Месяц', full: true, name: monthTitle, keepEmpty: true })}
+        ${arDimTable('По классам', grades, { label: 'Класс', name: (g) => (g === 0 ? 'Не указан' : g === 99 ? 'Другое' : g + ' класс') })}
         ${arDimTable('По формату', formats, { label: 'Формат' })}
         ${arDimTable('По дням недели', days, { label: 'День', name: (d) => WDL[d] })}
         ${arDimTable('Кто записал', whos, { label: 'Менеджер' })}
