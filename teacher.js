@@ -147,7 +147,7 @@ function tTrialCard(x, o = {}) {
   const started = tStarted(x.date, x.time);
   let acts = '';
   if (x.result) {
-    const btns = (x.mine ? `<button class="btn" data-act="tResMenu" data-row="${x.row}">Изменить итог</button>` : '')
+    const btns = `<button class="btn" data-act="tResMenu" data-row="${x.row}">Изменить итог</button>`
       + (x.result !== 'Перенос' && x.result !== 'Не пришёл' ? `<button class="btn" data-act="tNote" data-row="${x.row}">${ic('edit', 2)}Отзыв</button>` : '');
     if (btns) acts = `<div class="actions">${btns}</div>`;
   } else if (started) {
@@ -155,7 +155,8 @@ function tTrialCard(x, o = {}) {
   }
   const when = o.date ? `${dayLabel(x.date)}, ${x.time}` : '';
   const need = !x.result && started;
-  return `<div class="list lesson t-trial ${need ? 'need' : ''}">
+  // прошедший пробный — вся карточка нажимается: итог и отзыв в одном меню
+  return `<div class="list lesson t-trial ${need ? 'need' : ''} ${started ? 'tap' : ''}" ${started ? `data-act="tTrialPick" data-row="${x.row}"` : ''}>
     <div class="row">
       <div class="time-col">${o.date ? '' : esc(x.time)}</div>
       <div class="main">
@@ -727,6 +728,13 @@ const T_ACT = {
     const x = S.d.trials.find((t) => t.row === Number(el.dataset.row));
     if (!x) return;
     pick('Изменить итог', RESULTS.map((r) => ({ label: r, cur: r === x.result, onPick: () => { if (r !== x.result) tSetResult(x, r); } })));
+  },
+  tTrialPick(el) {
+    const x = S.d.trials.find((t) => t.row === Number(el.dataset.row));
+    if (!x) return;
+    const items = RESULTS.map((r) => ({ label: r, cur: r === x.result, onPick: () => { if (r !== x.result) tSetResult(x, r); } }));
+    if (x.result !== 'Перенос' && x.result !== 'Не пришёл') items.push({ label: 'Написать отзыв', note: 'о ребёнке — для менеджера', onPick: () => tOpenNote(x.row) });
+    pick(esc(`${x.name || 'Без имени'} · ${dayLabel(x.date)}, ${x.time}`), items);
   },
   tNote(el) { tOpenNote(Number(el.dataset.row)); },
   tStud(el) { stOpen(el.dataset.teacher, el.dataset.name, Number(el.dataset.row) || 0); },

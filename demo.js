@@ -438,7 +438,6 @@ const Demo = (() => {
     tResult: (r) => {
       const t = trialOf(r);
       db.own = db.own || {};
-      if (t.result && db.own[tKey(t)] !== t.result) throw new Error('Итог уже поставил менеджер: ' + t.result);
       t.result = r.result;
       db.own[tKey(t)] = r.result;
       applyResult(t, r.result);
