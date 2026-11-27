@@ -232,3 +232,8 @@
 @media (min-width: 1300px) {
   .ar-rep { max-width: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 0 28px; align-items: start; }
 }
+
+/* Переключение профилей (менеджер + преподаватель на одном устройстве) */
+.side-foot.can-switch { cursor: pointer; border-radius: 10px; }
+.side-foot.can-switch:hover .me-name { text-decoration: underline; text-underline-offset: 3px; }
+.prof-menu button.cur { cursor: default; }

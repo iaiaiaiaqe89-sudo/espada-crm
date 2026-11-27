@@ -298,6 +298,7 @@ function tViewMore() {
     <div class="row"><div class="check on" style="background:var(--accent);border-color:var(--accent)">${ic('user', 2)}</div>
       <div class="main"><div class="title">${esc(d.me)}</div><div class="meta">${d.preview ? 'Кабинет преподавателя — вы смотрите как менеджер' : 'Преподаватель'}</div></div></div>
   </div></section>
+  ${profilesSection(d)}
 
   <section class="section"><div class="section-h"><h2>Telegram</h2></div><div class="list"><div class="row"><div class="main">
     ${tg.linked

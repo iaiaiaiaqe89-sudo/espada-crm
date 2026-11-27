@@ -148,16 +148,55 @@ const TASK_IDEAS = ['Позвонить', 'Написать в WhatsApp', 'На�
 
 /* ============================== Доступ ============================== */
 
+/*
+ * Несколько профилей на одном устройстве: например, Билал — менеджер и преподаватель,
+ * Дмитрий — преподаватель и вход Алтынай. Профиль = личная ссылка (api + ключ); активный лежит в espada-auth.
+ * У кого одна ссылка — ничего не меняется.
+ */
+const PROF_KEY = 'espada-profiles';
+function profiles() {
+  try { const l = JSON.parse(lsGet(PROF_KEY) || '[]'); return Array.isArray(l) ? l.filter((p) => p && p.api && p.key) : []; } catch { return []; }
+}
+function saveProfiles(l) { lsSet(PROF_KEY, l.length ? JSON.stringify(l) : null); }
+function addProfile(p) {
+  const l = profiles();
+  const i = l.findIndex((x) => x.key === p.key);
+  if (i >= 0) l[i] = { ...l[i], api: p.api, name: p.name || l[i].name || '', role: p.role || l[i].role || '' };
+  else l.push({ api: p.api, key: p.key, name: p.name || '', role: p.role || '' });
+  saveProfiles(l);
+}
+function dropProfile(key) { saveProfiles(profiles().filter((p) => p.key !== key)); }
+/** Ссылка доступа → { api, key } или null. Подходит и целая ссылка, и кусок после «#». */
+function parseAccess(v) {
+  v = String(v || '').trim();
+  const i = v.indexOf('#');
+  const h = new URLSearchParams(i >= 0 ? v.slice(i + 1) : v);
+  return h.get('api') && h.get('k') ? { api: h.get('api'), key: h.get('k') } : null;
+}
+const profRole = (p) => (p.role === 'teacher' ? 'преподаватель' : p.role === 'manager' ? 'менеджер' : '');
+const profName = (p) => p.name || 'Профиль';
+
 const CFG = (() => {
   const h = new URLSearchParams(location.hash.slice(1));
   let api = h.get('api'), key = h.get('k');
   if (h.has('demo')) lsSet('espada-demo', '1');
   if (h.get('skin')) lsSet('espada-skin', h.get('skin') === 'brand' ? 'brand' : 'plain');
+  let saved = {};
+  try { saved = JSON.parse(lsGet('espada-auth') || '{}') || {}; } catch { /* пусто */ }
   if (api && key) {
-    lsSet('espada-auth', JSON.stringify({ api, key }));
-    lsSet('espada-demo', null);
+    addProfile({ api, key }); // новая ссылка — ещё один профиль, прежние остаются
+    // Иконка на экране «Домой» всегда открывается с той ссылкой, с которой её добавили.
+    // Если её уже применяли, а потом переключились на другой профиль — остаёмся в выбранном.
+    const known = profiles().some((p) => p.key === saved.key);
+    if (lsGet('espada-link') === key && saved.key && known) ({ api, key } = saved);
+    else {
+      lsSet('espada-auth', JSON.stringify({ api, key }));
+      lsSet('espada-link', key);
+      lsSet('espada-demo', null);
+    }
   } else {
-    try { ({ api, key } = JSON.parse(lsGet('espada-auth') || '{}')); } catch { /* пусто */ }
+    ({ api, key } = saved);
+    if (api && key) addProfile({ api, key });
   }
   return { api, key, demo: lsGet('espada-demo') === '1' };
 })();
@@ -173,7 +212,7 @@ async function call(action, payload = {}) {
   if (!res.ok) throw new Error(`Сервер ответил ошибкой (${res.status})`);
   const j = await res.json();
   if (!j.ok) {
-    if (j.error === 'AUTH') { lsSet('espada-auth', null); throw new Error('Ссылка недействительна. Откройте свою персональную ссылку ещё раз.'); }
+    if (j.error === 'AUTH') { lsSet('espada-auth', null); dropProfile(CFG.key); throw new Error('Ссылка недействительна. Откройте свою персональную ссылку ещё раз.'); }
     if (/^Неизвестное действие/.test(j.error)) throw new Error('Сервер ещё старой версии: в Apps Script обновите код и выпустите новую версию развёртывания');
     throw new Error(j.error);
   }
@@ -230,7 +269,11 @@ async function load(silent) {
     const first = !S.d;
     S.d = d;
     S.loadedAt = Date.now();
-    if (!as) lsSet(cacheKey(), JSON.stringify(d));
+    if (!as) {
+      lsSet(cacheKey(), JSON.stringify(d));
+      // подпись профиля для переключателя: чей вход и в какой роли
+      if (!CFG.demo && d.me) addProfile({ api: CFG.api, key: CFG.key, name: d.me, role: d.role === 'teacher' ? 'teacher' : 'manager' });
+    }
     render(first ? { anim: 'fade' } : {});
     rerenderSheets();
   } catch (e) {
@@ -368,7 +411,7 @@ function shell() {
       ${teacher ? '' : `<button class="btn primary side-new" data-act="newTrial">${ic('plus', 2.4)}Новый пробный<kbd>N</kbd></button>`}
       <nav class="side-nav">${sideList().map((v) => `
         <button class="nav-item" data-act="tab" data-v="${v}">${ic(tabIcon(v))}<span>${tabTitle(v)}</span><span class="badge hidden"></span></button>`).join('')}</nav>
-      <div class="side-foot">${ic('user', 2)}<span class="me-name"></span><span class="pill accent hidden me-main">главный</span></div>
+      <div class="side-foot" data-act="profPick">${ic('user', 2)}<span class="me-name"></span><span class="pill accent hidden me-main">главный</span></div>
     </aside>
     <div class="app-body">
       ${S.as ? `<div class="demo-bar preview-bar"><span>Кабинет преподавателя: ${esc(S.as)}</span><button data-act="exitCab">${ic('x', 2.6)}Вернуться в CRM</button></div>`
@@ -420,6 +463,9 @@ function render(opts = {}) {
   $('#tbTitle').textContent = tabTitle(view);
   $('#tbSub').textContent = view === 'today' || view === 'tday' ? `${WDF[d.getDay()]}, ${d.getDate()} ${MONF[d.getMonth()]}` : me();
   $('.me-name').textContent = me();
+  const canSwitch = !CFG.demo && !S.as && profiles().length > 1;
+  $('.side-foot').classList.toggle('can-switch', canSwitch);
+  $('.side-foot').title = canSwitch ? 'Сменить профиль' : '';
   $('.me-main').classList.toggle('hidden', teacher || !isMain());
   const fab = $('.fab');
   if (fab) {
@@ -896,6 +942,27 @@ function teacherBotSection(d) {
     <p class="hint">«Открыть» — кабинет глазами преподавателя: там он ведёт своих учеников в «Базе» (оплаты, статусы, заморозки), меняет статусы часов в расписании, ставит итоги пробных и видит свою зарплату. «Пригласить» — отправить личную ссылку на кабинет и бота. О новых учениках, сменах статуса и оплатах вам приходит сообщение в Telegram.</p></section>`;
 }
 
+/** Профили на этом устройстве. Преподавателю показываем, только если профилей уже несколько. */
+function profilesSection(d) {
+  if (CFG.demo || d.preview) return '';
+  const l = profiles();
+  const teacher = isTeacher();
+  const canAdd = !teacher;
+  if (l.length < 2 && !canAdd) return '';
+  const rows = l.map((p) => {
+    const cur = p.key === CFG.key;
+    return `<button ${cur ? 'class="cur" aria-current="true"' : `data-act="profSwitch" data-key="${esc(p.key)}"`}>${ic(p.role === 'teacher' ? 'trial' : 'user')}
+      <span>${esc(profName(p))}</span><small>${esc(profRole(p))}${cur ? ' · сейчас' : ''}</small>${cur ? `<span class="cur-mark">${ic('check', 2.6)}</span>` : ''}</button>`;
+  }).join('');
+  return `<section class="section"><div class="section-h"><h2>Профили</h2>${l.length > 1 ? `<span class="count">${l.length}</span>` : ''}</div>
+    <div class="menu prof-menu">${l.length > 1 ? rows : ''}
+      ${canAdd ? `<button data-act="profAddTeacher">${ic('plus')}<span>Добавить профиль преподавателя</span></button>
+        <button data-act="profAddLink">${ic('plus')}<span>Добавить по ссылке</span></button>` : ''}
+    </div>
+    <p class="hint">${l.length > 1 ? 'Переключение — без повторного входа. Профили хранятся только на этом устройстве; «Выйти» убирает текущий.'
+      : 'Если вы ещё и преподаватель или ведёте другой вход, добавьте профиль и переключайтесь здесь без повторного входа.'}</p></section>`;
+}
+
 function viewMore() {
   const d = S.d;
   const tg = d.telegram || {};
@@ -905,6 +972,7 @@ function viewMore() {
     <div class="row"><div class="check on" style="background:var(--accent);border-color:var(--accent)">${ic('user', 2)}</div>
       <div class="main"><div class="title">${esc(d.me)}</div><div class="meta">${isMain() ? 'Главный менеджер: общие напоминания приходят вам' : 'Менеджер'}</div></div></div>
   </div></section>
+  ${profilesSection(d)}
 
   <section class="section"><div class="section-h"><h2>Telegram-напоминания</h2></div><div class="list"><div class="row"><div class="main">
     ${tg.linked
@@ -1626,18 +1694,58 @@ const ACT = {
     run('dismiss', { key, undo: true }, () => { S.d.tasks.forEach((t) => { if (t.key === key) t.key = 'x|' + key; }); }).catch(() => {});
   },
   login() {
-    const v = $('#loginLink').value.trim();
-    const i = v.indexOf('#');
-    const h = new URLSearchParams(i >= 0 ? v.slice(i + 1) : v);
-    if (!h.get('api') || !h.get('k')) return toast('Это не похоже на ссылку доступа', { err: true });
-    location.hash = '#' + h.toString();
+    const a = parseAccess($('#loginLink').value);
+    if (!a) return toast('Это не похоже на ссылку доступа', { err: true });
+    location.hash = '#' + new URLSearchParams({ api: a.api, k: a.key }).toString();
     location.reload();
+  },
+  profSwitch(el) {
+    const p = profiles().find((x) => x.key === el.dataset.key);
+    if (!p) return;
+    lsSet('espada-auth', JSON.stringify({ api: p.api, key: p.key }));
+    location.hash = '';
+    location.reload();
+  },
+  profPick() {
+    const l = profiles();
+    if (CFG.demo || l.length < 2 || (S.d && S.d.preview)) return;
+    pick('Профиль', l.map((p) => ({ label: profName(p), note: profRole(p), cur: p.key === CFG.key,
+      onPick: () => { if (p.key !== CFG.key) ACT.profSwitch({ dataset: { key: p.key } }); } })));
+  },
+  profAddTeacher() {
+    const have = profiles().map((p) => p.key);
+    const list = (S.d.teacherBot || []).map((t) => ({ t, a: parseAccess(t.cab) })).filter((x) => x.a);
+    if (!list.length) return toast('Список преподавателей ещё не загрузился — обновите данные', { err: true });
+    pick('Чей кабинет добавить', list.map(({ t, a }) => {
+      const added = have.includes(a.key);
+      return { label: t.name, note: added ? 'уже добавлен' : '', cur: added, onPick: () => {
+        if (added) return;
+        addProfile({ ...a, name: t.name, role: 'teacher' });
+        render();
+        toast(`Профиль «${t.name}» добавлен — переключиться можно в «Ещё → Профили»`);
+      } };
+    }));
+  },
+  profAddLink() {
+    const v = window.prompt('Вставьте личную ссылку (менеджера или кабинета преподавателя):', '');
+    if (v == null) return;
+    const a = parseAccess(v);
+    if (!a) return toast('Это не похоже на ссылку доступа', { err: true });
+    if (profiles().some((p) => p.key === a.key)) return toast('Этот профиль уже добавлен');
+    addProfile(a);
+    render();
+    toast('Профиль добавлен — имя появится после первого входа в него');
   },
   demo() { lsSet('espada-demo', '1'); location.hash = ''; location.reload(); },
   demoReset() { Demo.reset(); load(); toast('Демо-данные сброшены'); },
   logout() {
-    if (!confirm(CFG.demo ? 'Выйти из демо-режима?' : 'Выйти? Понадобится снова открыть персональную ссылку.')) return;
-    lsSet('espada-auth', null); lsSet('espada-demo', null); lsSet(cacheKey(), null);
+    const rest = CFG.demo ? [] : profiles().filter((p) => p.key !== CFG.key);
+    if (!confirm(CFG.demo ? 'Выйти из демо-режима?'
+      : rest.length ? `Выйти из профиля «${profName(profiles().find((p) => p.key === CFG.key) || {})}»? Он пропадёт с этого устройства, откроется «${profName(rest[0])}».`
+        : 'Выйти? Понадобится снова открыть персональную ссылку.')) return;
+    lsSet(cacheKey(), null); lsSet('espada-demo', null);
+    if (!CFG.demo) dropProfile(CFG.key);
+    lsSet('espada-auth', rest.length ? JSON.stringify({ api: rest[0].api, key: rest[0].key }) : null);
     location.hash = ''; location.reload();
   },
 };
