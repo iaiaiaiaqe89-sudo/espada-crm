@@ -374,6 +374,14 @@ function tOpenForm(s) {
       price.addEventListener('input', () => { priceTouched = true; if (!paidTouched) paid.value = price.value; });
       paid.addEventListener('input', () => { paidTouched = true; });
       f.addEventListener('change', (e) => {
+        // дату оплаты сдвинули вперёд — это новая оплата: старые заморозки слетают (остаются только дни нового абонемента)
+        if (e.target.name === 'payDate' && s && s.payDate && e.target.value > s.payDate) {
+          const keep = stFreezes(ctx, s.name).filter((x) => x.d >= e.target.value).reduce((a, x) => a + (x.k || 1), 0);
+          if (Number(f.elements.freezes.value || 0) !== keep) {
+            f.elements.freezes.value = keep || '';
+            toast('Новая дата оплаты — старые заморозки обнулены');
+          }
+        }
         if (e.target.name === 'format' && !priceTouched) {
           price.value = m.prices[e.target.value] || '';
           if (!paidTouched) paid.value = price.value;
@@ -426,7 +434,7 @@ function tOpenPay(s) {
         const a = Number(amount.value) || 0;
         $('#tp-dateBox', p).classList.toggle('hidden', m === 'add' && !!s.payDate);
         $('#tp-hint', p).textContent = m === 'renew'
-          ? `Дата оплаты станет ${$('#tp-date', p).value.split('-').reverse().join('.')}, оплачено — ${money(a)} сом, заморозки обнулятся. Следующая оплата пересчитается сама.`
+          ? `Дата оплаты станет ${$('#tp-date', p).value.split('-').reverse().join('.')}, оплачено — ${money(a)} сом, старые заморозки слетят. Следующая оплата пересчитается сама.`
           : `Оплачено: ${money(s.paid)} → ${money(s.paid + a)} сом.`;
       };
       p.addEventListener('change', (e) => { if (e.target.name === 'mode') amount.value = e.target.value === 'add' ? s.debt : s.price || ''; hint(); });

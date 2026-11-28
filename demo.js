@@ -408,6 +408,8 @@ const Demo = (() => {
       journal: [{ date: day(-((new Date().getDay() || 7))), week: addD(ws(), -7), sum: 5400, comment: '' }, { date: addD(ws(), -8), week: addD(ws(), -14), sum: 6200, comment: 'с заменой' }] };
   }
   const tKey = (t) => [t.date, t.time, norm(t.phone) || t.name, t.teacher].join('|');
+  /** Заморозки нового абонемента: дни из «заморозок по дням» не раньше даты оплаты (как periodFreezes_ на сервере). */
+  const periodFr = (cc, name, pd) => (cc.freezes || []).filter((f) => f.n === name && f.d >= pd).reduce((a, f) => a + f.k, 0);
   const tTrial = (t) => ({ row: t.row, key: tKey(t), date: t.date, time: t.time, name: t.name, grade: t.grade, format: t.format, phone: t.phone,
     result: t.result, comment: t.comment, mine: !!t.result && (db.own || {})[tKey(t)] === t.result });
   const trialOf = (r) => {
@@ -454,7 +456,12 @@ const Demo = (() => {
       const num = (x) => (x === '' || x == null ? 0 : Number(x));
       const vals = { name: v.name, phone: v.phone, grade: v.grade, format: v.format, onl: v.onl, days: v.days, time: v.time, price: num(v.price),
         paid: num(v.paid), payDate: v.payDate || '', freezes: num(v.freezes), status: v.status || 'Учится', comment: v.comment || '', lessons: v.lessons || '' };
-      if (v.row) Object.assign(studentOf(c, v), vals);
+      if (v.row) {
+        const cur = studentOf(c, v);
+        // дату оплаты сдвинули вперёд, заморозки не трогали — новая оплата, старые заморозки слетают
+        if (vals.payDate && cur.payDate && vals.payDate > cur.payDate && vals.freezes === (cur.freezes || 0)) vals.freezes = periodFr(c, cur.name, vals.payDate);
+        Object.assign(cur, vals);
+      }
       else {
         if (!r.force && c.students.some((s) => s.name.toLowerCase() === v.name.toLowerCase() && s.status !== 'Выбыл')) return { duplicate: true };
         c.students.push({ row: Math.max(...c.students.map((s) => s.row)) + 1, ...vals });
@@ -467,7 +474,10 @@ const Demo = (() => {
       const id = 'p' + Date.now();
       c.pays[id] = { name: s.name, row: s.row, payDate: s.payDate, paid: s.paid, freezes: s.freezes };
       (c.hist = c.hist || []).push({ id, name: s.name, at: dtS(new Date()), who: 'Алтынай', type: r.mode === 'renew' ? 'Новый абонемент' : 'Доплата', sum: Number(r.amount), undone: false });
-      if (r.mode === 'renew') Object.assign(s, { payDate: r.date || day(0), paid: Number(r.amount), freezes: 0 });
+      if (r.mode === 'renew') {
+        const pd = r.date || day(0);
+        Object.assign(s, { payDate: pd, paid: Number(r.amount), freezes: periodFr(c, s.name, pd) });
+      }
       else s.paid += Number(r.amount);
       return { payment: { id }, students: students(c) };
     },
@@ -498,7 +508,8 @@ const Demo = (() => {
           s.freezes += k;
         } else {
           if (i < 0) { done.push(n); return; }
-          s.freezes = Math.max(0, s.freezes - c.freezes[i].k);
+          // заморозка до последней оплаты уже слетела вместе со старым абонементом
+          if (!(s.payDate && c.freezes[i].d < s.payDate)) s.freezes = Math.max(0, s.freezes - c.freezes[i].k);
           c.freezes.splice(i, 1);
         }
         done.push(n);
